@@ -1,57 +1,152 @@
 {
-  "A_grid": {
-    "name": "Grid-only",
-    "solar_mw": 0.0,
-    "wind_mw": 0.0,
-    "battery_mwh": 0.0,
-    "grid_conn_eur": 53600000.0,
-    "elec_cost_lifetime_eur": 2779846221.221734,
-    "power_capex_eur": 53600000.0,
-    "power_opex_lifetime_eur": 2779846221.221734,
-    "total_power_cost_eur": 2833446221.221734,
-    "dc_capex_eur": 1000000000.0,
-    "utilization": 1.0,
-    "lcoe_eur_mwh": 64.69055299593,
-    "total_cost_eur": 3833446221.221734
+  "Denmark": {
+    "A_grid": {
+      "name": "Grid-only (100%)",
+      "solar_mw": 0,
+      "wind_mw": 0,
+      "battery_mwh": 0,
+      "total_power_cost_eur": 2833446221.221734,
+      "dc_capex_eur": 1000000000,
+      "utilization": 1.0,
+      "total_cost_eur": 3833446221.221734
+    },
+    "B_solar_95.0%": {
+      "name": "Solar+Batt @ 95.0%",
+      "solar_mw": 4000.0,
+      "wind_mw": 0,
+      "battery_mwh": 3869.3398237228394,
+      "total_power_cost_eur": 3213899376.636363,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9500000046930699,
+      "total_cost_eur": 4213899376.636363
+    },
+    "C_solarwind_95.0%": {
+      "name": "Solar+Wind+Batt @ 95.0%",
+      "solar_mw": 114.28571428571428,
+      "wind_mw": 285.7142857142857,
+      "battery_mwh": 334.51616764068604,
+      "total_power_cost_eur": 646889080.0980955,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9500001128470895,
+      "wind_ratio": 2.5,
+      "total_cost_eur": 1646889080.0980954
+    },
+    "B_solar_99.0%": {
+      "name": "Solar+Batt @ 99.0%",
+      "solar_mw": 6000.0,
+      "wind_mw": 0,
+      "battery_mwh": 5453.851819038391,
+      "total_power_cost_eur": 4707222819.539786,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9900000013990861,
+      "total_cost_eur": 5707222819.539786
+    },
+    "C_solarwind_99.0%": {
+      "name": "Solar+Wind+Batt @ 99.0%",
+      "solar_mw": 171.42857142857142,
+      "wind_mw": 428.57142857142856,
+      "battery_mwh": 865.2091026306152,
+      "total_power_cost_eur": 1088268230.9040084,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9900000000856319,
+      "wind_ratio": 2.5,
+      "total_cost_eur": 2088268230.9040084
+    },
+    "B_solar_99.9%": {
+      "name": "Solar+Batt @ 99.9%",
+      "solar_mw": 8000.0,
+      "wind_mw": 0,
+      "battery_mwh": 5950.501561164856,
+      "total_power_cost_eur": 5847534956.636778,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9990000027282513,
+      "total_cost_eur": 6847534956.636778
+    },
+    "C_solarwind_99.9%": {
+      "name": "Solar+Wind+Batt @ 99.9%",
+      "solar_mw": 228.57142857142856,
+      "wind_mw": 571.4285714285714,
+      "battery_mwh": 1528.1587839126587,
+      "total_power_cost_eur": 1572564696.4466193,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9990000020277481,
+      "wind_ratio": 2.5,
+      "total_cost_eur": 2572564696.446619
+    }
   },
-  "B_offgrid_solar": {
-    "name": "Off-grid Solar+Battery",
-    "solar_mw": 1603.1308204149268,
-    "wind_mw": 0.0,
-    "battery_mwh": 2171.0658392876567,
-    "grid_conn_eur": 0.0,
-    "power_capex_eur": 754839331.9405167,
-    "power_opex_lifetime_eur": 575816906.6517737,
-    "total_power_cost_eur": 1440309816.519042,
-    "dc_capex_eur": 1000000000.0,
-    "utilization": 0.7009596826519562,
-    "lcoe_eur_mwh": 46.91252090400547,
-    "total_cost_eur": 2440309816.519042
-  },
-  "C_offgrid_solar_wind": {
-    "name": "Off-grid Solar+Wind+Battery (wind ratio 1.3)",
-    "solar_mw": 377.0778060399845,
-    "wind_mw": 490.2011478519799,
-    "battery_mwh": 0.0,
-    "grid_conn_eur": 0.0,
-    "power_capex_eur": 663656938.6303728,
-    "total_power_cost_eur": 1000703397.1934853,
-    "dc_capex_eur": 1000000000.0,
-    "utilization": 0.7326308548872842,
-    "wind_solar_ratio": 1.3,
-    "total_cost_eur": 2000703397.1934853
-  },
-  "D_hybrid": {
-    "name": "Hybrid Grid+Solar+Battery",
-    "solar_mw": 4000.0,
-    "wind_mw": 0.0,
-    "battery_mwh": 1796.3711173689862,
-    "grid_conn_eur": 53600000.0,
-    "total_annual_cost_eur": 65348950.62537506,
-    "total_power_cost_25yr_eur": 1633723765.6343765,
-    "dc_capex_eur": 1000000000.0,
-    "utilization": 1.0,
-    "annual_grid_mwh": 293411.8698105028,
-    "total_cost_eur": 2633723765.6343765
+  "NorthTexas": {
+    "A_grid": {
+      "name": "Grid-only (100%)",
+      "solar_mw": 0,
+      "wind_mw": 0,
+      "battery_mwh": 0,
+      "total_power_cost_eur": 1631647701.7668152,
+      "dc_capex_eur": 1000000000,
+      "utilization": 1.0,
+      "total_cost_eur": 2631647701.766815
+    },
+    "B_solar_95.0%": {
+      "name": "Solar+Batt @ 95.0%",
+      "solar_mw": 1400.0,
+      "wind_mw": 0,
+      "battery_mwh": 2596.1488485336304,
+      "total_power_cost_eur": 1527854817.996994,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9500000430873907,
+      "total_cost_eur": 2527854817.996994
+    },
+    "C_solarwind_95.0%": {
+      "name": "Solar+Wind+Batt @ 95.0%",
+      "solar_mw": 133.33333333333331,
+      "wind_mw": 266.66666666666663,
+      "battery_mwh": 0,
+      "total_power_cost_eur": 515504667.3672949,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9657557893926995,
+      "wind_ratio": 2.0,
+      "total_cost_eur": 1515504667.3672948
+    },
+    "B_solar_99.0%": {
+      "name": "Solar+Batt @ 99.0%",
+      "solar_mw": 2000.0,
+      "wind_mw": 0,
+      "battery_mwh": 2817.1539306640625,
+      "total_power_cost_eur": 1893315756.1889815,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9900000094609483,
+      "total_cost_eur": 2893315756.1889815
+    },
+    "C_solarwind_99.0%": {
+      "name": "Solar+Wind+Batt @ 99.0%",
+      "solar_mw": 114.28571428571428,
+      "wind_mw": 285.7142857142857,
+      "battery_mwh": 222.131609916687,
+      "total_power_cost_eur": 610420290.6366313,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9900000240599998,
+      "wind_ratio": 2.5,
+      "total_cost_eur": 1610420290.6366313
+    },
+    "B_solar_99.9%": {
+      "name": "Solar+Batt @ 99.9%",
+      "solar_mw": 2200.0,
+      "wind_mw": 0,
+      "battery_mwh": 3819.584846496582,
+      "total_power_cost_eur": 2316519522.023866,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9990000002217949,
+      "total_cost_eur": 3316519522.023866
+    },
+    "C_solarwind_99.9%": {
+      "name": "Solar+Wind+Batt @ 99.9%",
+      "solar_mw": 114.28571428571428,
+      "wind_mw": 285.7142857142857,
+      "battery_mwh": 1052.585244178772,
+      "total_power_cost_eur": 879902498.5017834,
+      "dc_capex_eur": 1000000000,
+      "utilization": 0.9990000024827348,
+      "wind_ratio": 2.5,
+      "total_cost_eur": 1879902498.5017834
+    }
   }
 }

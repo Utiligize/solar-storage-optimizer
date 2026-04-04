@@ -34,6 +34,42 @@ utilization plateaus at 75-90%, far below the 99.9% data centers require.*
 off-grid for loads above ~EUR 7M/MW. Note: Handmer's results use CapEx-only costs;
 our Denmark results include full lifecycle costs.*
 
+### What does 99.9% uptime actually cost off-grid?
+
+The fair comparison: size the off-grid system to match the grid's reliability (99.9%
+uptime), then compare costs. Results for a **200 MW data center** (typical 2025-2026
+hyperscaler facility, EUR 5M/MW CapEx = EUR 1B total):
+
+**Denmark (57N, solar CF 0.13, wind CF 0.30):**
+
+| Scenario | Power System Cost | Utilization | Infrastructure | Total 25yr Cost |
+|---|---|---|---|---|
+| **Grid-only** | EUR 2.8B | 100% | Grid connection only | **EUR 3.8B** |
+| Solar+Wind+Batt @ 95% | EUR 0.6B | 95.0% | 114MW sol, 286MW wind, 335MWh batt | EUR 1.6B |
+| Solar+Wind+Batt @ 99% | EUR 1.1B | 99.0% | 171MW sol, 429MW wind, 865MWh batt | EUR 2.1B |
+| Solar+Wind+Batt @ 99.9% | EUR 1.6B | 99.9% | 229MW sol, 571MW wind, 1.5GWh batt | **EUR 2.6B** |
+
+**North Texas (36N, solar CF 0.19, wind CF 0.40):**
+
+| Scenario | Power System Cost | Utilization | Infrastructure | Total 25yr Cost |
+|---|---|---|---|---|
+| **Grid-only** | EUR 1.6B | 100% | Grid connection only | **EUR 2.6B** |
+| Solar+Wind+Batt @ 95% | EUR 0.5B | 96.6% | 133MW sol, 267MW wind | EUR 1.5B |
+| Solar+Wind+Batt @ 99% | EUR 0.6B | 99.0% | 114MW sol, 286MW wind, 222MWh batt | EUR 1.6B |
+| Solar+Wind+Batt @ 99.9% | EUR 0.9B | 99.9% | 114MW sol, 286MW wind, 1.1GWh batt | **EUR 1.9B** |
+
+**Key findings:**
+- Off-grid at 99.9% is **cheaper than grid in both locations** -- but requires
+  enormous infrastructure (800MW of generation capacity + 1+ GWh of batteries for a
+  200MW load)
+- **Wind is essential** -- solar-only systems cannot achieve 99.9% in Denmark at any
+  cost within reasonable bounds
+- The jump from 99% to 99.9% is extremely expensive (battery costs dominate)
+- Grid connection costs ~EUR 54M once; the rest is 25 years of electricity at spot+tariffs
+- Texas grid is cheaper than Denmark grid (lower spot prices, lower tariffs)
+- Real-world feasibility questions remain: siting 800MW of generation, permitting,
+  land availability, and whether synthetic wind/solar profiles capture worst-case weather
+
 ---
 
 ## Background

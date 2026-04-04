@@ -168,10 +168,16 @@ def offgrid_system_cost(solar_cf, array_size_mw, battery_size_mwh, load_cost_per
     batt_replacement = (battery_size_mwh * battery_cost * BATTERY_REPLACEMENT_COST_FACTOR
                         / (1 + discount_rate) ** BATTERY_REPLACEMENT_YEAR)
 
-    # Solar degradation: average output over 25 years is ~94% of year-1
-    # (0.5%/yr linear degradation -> mean factor = 1 - 0.005*12 = 0.94)
-    degradation_factor = 1 - SOLAR_DEGRADATION_RATE * (SYSTEM_LIFETIME_YEARS - 1) / 2
-    effective_utilization = result["utilization"] * degradation_factor
+    # Solar degradation: panels lose 0.5%/yr. We model this as requiring
+    # slightly more panels upfront (size for mid-life output).
+    # The utilization itself is NOT reduced - the system still runs,
+    # just with slightly less headroom in later years.
+    # We add the cost of overbuilding by 6% to compensate for avg degradation.
+    degradation_overbuild = 1 / (1 - SOLAR_DEGRADATION_RATE * (SYSTEM_LIFETIME_YEARS / 2))
+    array_capex *= degradation_overbuild  # Need ~6% more panels
+    solar_om_annual *= degradation_overbuild
+    land_annual *= degradation_overbuild
+    effective_utilization = result["utilization"]  # Utilization is maintained
 
     power_system_cost = array_capex + batt_capex + lifetime_opex + batt_replacement
     total_cost = power_system_cost + load_cost
@@ -340,186 +346,126 @@ def grid_connected_system_cost(load_cost_per_mw, spot_prices_eur_mwh,
 
 
 # ============================================================
-# HYBRID: SOLAR + BATTERY + GRID (CPLEX optimization)
+# TARGET-UTILIZATION SIZING
 # ============================================================
 
-def optimize_hybrid_scipy(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
-                           solar_cost=SOLAR_COST_PER_MW,
-                           battery_cost=BATTERY_COST_PER_MWH,
-                           max_solar_mw=20.0, max_battery_mwh=50.0,
-                           sample_hours=None):
+def size_for_target_utilization(solar_cf, target_util=0.999,
+                                 solar_cost=SOLAR_COST_PER_MW,
+                                 battery_cost=BATTERY_COST_PER_MWH,
+                                 wind_cf=None, wind_cost=WIND_COST_PER_MW,
+                                 max_iter=200):
     """
-    Scipy linprog optimization for hybrid solar+battery+grid system.
-    Minimizes total cost = CapEx(solar+battery) + grid connection + electricity purchases.
-    All costs in EUR.
+    Size solar (+ optional wind) + battery to hit a target utilization.
+    This is the fair comparison: what does 99.9% uptime COST off-grid?
 
-    Uses hourly resolution to keep the LP tractable.
+    Uses binary search on array size and battery size to find the minimum-cost
+    system that achieves the target utilization.
     """
     discount_rate = 0.05
     npv_factor = sum(1 / (1 + discount_rate) ** y for y in range(SYSTEM_LIFETIME_YEARS))
+    # Degradation: size for mid-life output (year 12.5 of 25) to ensure target
+    # is met on average over lifetime. Solar CF is derated to mid-life value.
+    midlife_degradation = 1 - SOLAR_DEGRADATION_RATE * (SYSTEM_LIFETIME_YEARS / 2)
+    has_wind = wind_cf is not None
 
-    # Resample solar CF to hourly if needed
-    if len(solar_cf) > 9000:
-        # 5-min data -> hourly
-        n_hours = len(solar_cf) // 12
-        solar_hourly = np.array([solar_cf[i*12:(i+1)*12].mean() for i in range(n_hours)])
+    best_cost = float("inf")
+    best_result = None
+
+    if has_wind:
+        wind_ratios = [0, 0.5, 1.0, 1.5, 2.0, 2.5]
     else:
-        solar_hourly = np.array(solar_cf)
+        wind_ratios = [0]
 
-    # Match spot prices length
-    n = min(len(solar_hourly), len(spot_prices_eur_mwh))
-    if sample_hours and sample_hours < n:
-        # Sample representative hours for speed
-        idx = np.linspace(0, n - 1, sample_hours, dtype=int)
-        solar_hourly = solar_hourly[idx]
-        spot = spot_prices_eur_mwh[idx]
-        n = sample_hours
-        scale = 8760 / sample_hours
-    else:
-        solar_hourly = solar_hourly[:n]
-        spot = spot_prices_eur_mwh[:n]
-        scale = 1.0
+    # Coarse array sizes, then binary search on battery
+    array_sizes = np.concatenate([
+        np.arange(2, 15, 1),
+        np.arange(15, 40, 2.5),
+        np.arange(40, 80, 5),
+    ])
 
-    # Limit time steps for tractability
-    if n > 2000:
-        idx = np.linspace(0, n - 1, 2000, dtype=int)
-        solar_hourly = solar_hourly[idx]
-        spot = spot[idx]
-        scale = scale * n / 2000
-        n = 2000
-
-    print(f"  Scipy hybrid optimization with {n} time steps...")
-
-    sqrt_eff = np.sqrt(BATTERY_EFFICIENCY)
-
-    # Decision variables layout:
-    # [solar_cap, batt_cap, grid_buy(0..n-1), batt_charge(0..n-1),
-    #  batt_discharge(0..n-1), batt_soc(0..n-1), solar_curtail(0..n-1)]
-    # Total: 2 + 5*n variables
-
-    n_vars = 2 + 5 * n
-    # Indices
-    IDX_SOLAR = 0
-    IDX_BATT = 1
-    IDX_GRID = 2
-    IDX_CHARGE = 2 + n
-    IDX_DISCHARGE = 2 + 2 * n
-    IDX_SOC = 2 + 3 * n
-    IDX_CURTAIL = 2 + 4 * n
-
-    # Objective: minimize annualized cost
-    # capex_solar/lifetime + capex_batt/lifetime + capex_grid/lifetime + grid_elec_cost
-    c = np.zeros(n_vars)
-    c[IDX_SOLAR] = solar_cost / SYSTEM_LIFETIME_YEARS
-    c[IDX_BATT] = battery_cost / SYSTEM_LIFETIME_YEARS
-    # Grid connection cost is constant (depends on load_mw, not a decision variable)
-    # We add it after optimization
-
-    # Grid tariffs (Danish 60kV DSO connection, 2026)
-    grid_tariffs_eur = GRID_TARIFFS.get("Denmark_DSO", 20)
-    for t in range(n):
-        c[IDX_GRID + t] = (spot[t] + grid_tariffs_eur) * scale / n * 8760
-
-    # Bounds
-    bounds = []
-    bounds.append((0, max_solar_mw))    # solar_cap
-    bounds.append((0, max_battery_mwh))  # batt_cap
-    for t in range(n):  # grid_buy
-        bounds.append((0, None))
-    for t in range(n):  # batt_charge
-        bounds.append((0, None))
-    for t in range(n):  # batt_discharge
-        bounds.append((0, None))
-    for t in range(n):  # batt_soc
-        bounds.append((0, None))
-    for t in range(n):  # solar_curtail
-        bounds.append((0, None))
-
-    # Equality constraints: A_eq @ x = b_eq
-    # 1) Power balance for each t:
-    #    solar_hourly[t] * solar_cap + grid_buy[t] + batt_discharge[t]
-    #    == load_mw + batt_charge[t] + solar_curtail[t]
-    # 2) SOC dynamics for each t:
-    #    t==0: batt_soc[0] == 0.5*batt_cap + sqrt_eff*batt_charge[0] - batt_discharge[0]/sqrt_eff
-    #    t>0:  batt_soc[t] == batt_soc[t-1] + sqrt_eff*batt_charge[t] - batt_discharge[t]/sqrt_eff
-
-    n_eq = 2 * n
-    A_eq = np.zeros((n_eq, n_vars))
-    b_eq = np.zeros(n_eq)
-
-    for t in range(n):
-        # Power balance row
-        row_pb = t
-        A_eq[row_pb, IDX_SOLAR] = solar_hourly[t]      # solar_cap coefficient
-        A_eq[row_pb, IDX_GRID + t] = 1.0                # grid_buy[t]
-        A_eq[row_pb, IDX_DISCHARGE + t] = 1.0           # batt_discharge[t]
-        A_eq[row_pb, IDX_CHARGE + t] = -1.0             # -batt_charge[t]
-        A_eq[row_pb, IDX_CURTAIL + t] = -1.0            # -solar_curtail[t]
-        b_eq[row_pb] = load_mw
-
-        # SOC dynamics row
-        row_soc = n + t
-        A_eq[row_soc, IDX_SOC + t] = 1.0                # batt_soc[t]
-        A_eq[row_soc, IDX_CHARGE + t] = -sqrt_eff       # -sqrt_eff * batt_charge[t]
-        A_eq[row_soc, IDX_DISCHARGE + t] = 1.0 / sqrt_eff  # +batt_discharge[t]/sqrt_eff
-        if t == 0:
-            A_eq[row_soc, IDX_BATT] = -0.5              # -0.5 * batt_cap
-            b_eq[row_soc] = 0.0
+    for wind_ratio in wind_ratios:
+        if has_wind and wind_ratio > 0:
+            combined_gen = solar_cf + wind_cf * wind_ratio
         else:
-            A_eq[row_soc, IDX_SOC + t - 1] = -1.0       # -batt_soc[t-1]
-            b_eq[row_soc] = 0.0
+            combined_gen = solar_cf
 
-    # Inequality constraints: A_ub @ x <= b_ub
-    # For each t:
-    #   batt_soc[t] <= batt_cap  =>  batt_soc[t] - batt_cap <= 0
-    #   batt_charge[t] <= batt_cap  =>  batt_charge[t] - batt_cap <= 0
-    #   batt_discharge[t] <= batt_cap  =>  batt_discharge[t] - batt_cap <= 0
-    n_ineq = 3 * n
-    A_ub = np.zeros((n_ineq, n_vars))
-    b_ub = np.zeros(n_ineq)
+        for ai in array_sizes:
+            # Binary search for minimum battery that achieves target
+            batt_lo, batt_hi = 0, 500
+            found = False
 
-    for t in range(n):
-        # SOC <= batt_cap
-        row = t
-        A_ub[row, IDX_SOC + t] = 1.0
-        A_ub[row, IDX_BATT] = -1.0
+            # First check if even max battery is enough
+            res_max = simulate_offgrid(combined_gen, ai, batt_hi)
+            if res_max["utilization"] < target_util:
+                continue  # This array size can't hit target even with 500 MWh
 
-        # charge <= batt_cap
-        row = n + t
-        A_ub[row, IDX_CHARGE + t] = 1.0
-        A_ub[row, IDX_BATT] = -1.0
+            # Check if zero battery suffices
+            res_zero = simulate_offgrid(combined_gen, ai, 0)
+            if res_zero["utilization"] >= target_util:
+                batt_opt = 0
+                result = res_zero
+                found = True
+            else:
+                # Binary search
+                for _ in range(25):
+                    batt_mid = (batt_lo + batt_hi) / 2
+                    res = simulate_offgrid(combined_gen, ai, batt_mid)
+                    if res["utilization"] >= target_util:
+                        batt_hi = batt_mid
+                    else:
+                        batt_lo = batt_mid
+                batt_opt = batt_hi
+                result = simulate_offgrid(combined_gen, ai, batt_opt)
+                found = True
 
-        # discharge <= batt_cap
-        row = 2 * n + t
-        A_ub[row, IDX_DISCHARGE + t] = 1.0
-        A_ub[row, IDX_BATT] = -1.0
+            if found:
+                effective_util = result["utilization"]
+                if has_wind and wind_ratio > 0:
+                    effective_solar = ai / (1 + wind_ratio)
+                    effective_wind = ai * wind_ratio / (1 + wind_ratio)
+                else:
+                    effective_solar = ai
+                    effective_wind = 0
 
-    result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
-                     bounds=bounds, method="highs")
+                # Add ~6% solar overbuild for degradation over lifetime
+                deg_overbuild = 1 / (1 - SOLAR_DEGRADATION_RATE * (SYSTEM_LIFETIME_YEARS / 2))
+                solar_capex = effective_solar * solar_cost * deg_overbuild
+                wind_capex = effective_wind * wind_cost
+                batt_capex = batt_opt * battery_cost
+                solar_om = effective_solar * deg_overbuild * (SOLAR_OM_EUR_MW_YEAR + SOLAR_LAND_EUR_MW_YEAR) * npv_factor
+                wind_om = effective_wind * (WIND_OM_EUR_MW_YEAR + WIND_LAND_EUR_MW_YEAR) * npv_factor
+                batt_om = batt_opt * BATTERY_OM_EUR_MWH_YEAR * npv_factor
+                batt_repl = batt_opt * battery_cost * BATTERY_REPLACEMENT_COST_FACTOR / (1 + discount_rate) ** BATTERY_REPLACEMENT_YEAR
 
-    if result.success:
-        x = result.x
-        solar_opt = x[IDX_SOLAR]
-        batt_opt = x[IDX_BATT]
-        grid_purchases = x[IDX_GRID:IDX_GRID + n]
-        annual_grid_mwh = np.sum(grid_purchases) * scale / n * 8760
+                total = (solar_capex + wind_capex + batt_capex +
+                         solar_om + wind_om + batt_om + batt_repl)
 
-        capex_grid = GRID_CONNECTION_EUR_PER_MW * load_mw / SYSTEM_LIFETIME_YEARS
-        total_annual = result.fun + capex_grid
+                if total < best_cost:
+                    best_cost = total
+                    best_result = {
+                        "solar_mw": effective_solar,
+                        "wind_mw": effective_wind,
+                        "battery_mwh": batt_opt,
+                        "wind_ratio": wind_ratio,
+                        "solar_capex": solar_capex,
+                        "wind_capex": wind_capex,
+                        "battery_capex": batt_capex,
+                        "opex_lifetime": solar_om + wind_om + batt_om,
+                        "battery_replacement": batt_repl,
+                        "total_power_cost": total,
+                        "utilization": effective_util,
+                        "utilization_year1": result["utilization"],
+                        "target_util": target_util,
+                    }
+                    print(f"  -> array={ai:.1f}MW (sol={effective_solar:.1f} wind={effective_wind:.1f}), "
+                          f"batt={batt_opt:.1f}MWh, util={effective_util:.4f}, cost=EUR {total:,.0f}")
 
-        return {
-            "solar_mw": solar_opt,
-            "battery_mwh": batt_opt,
-            "annual_grid_purchase_mwh": annual_grid_mwh,
-            "solar_cost": solar_opt * solar_cost,
-            "battery_cost": batt_opt * battery_cost,
-            "grid_connection_cost": GRID_CONNECTION_EUR_PER_MW * load_mw,
-            "annual_electricity_cost": annual_grid_mwh * (np.mean(spot) + 25),
-            "total_annual_cost": total_annual,
-            "status": "optimal",
-        }
-    else:
-        return {"status": "infeasible"}
+    if best_result is None:
+        print(f"  WARNING: Could not achieve {target_util*100:.1f}% utilization!")
+        return None
+    print(f"  BEST: sol={best_result['solar_mw']:.1f}MW wind={best_result['wind_mw']:.1f}MW "
+          f"batt={best_result['battery_mwh']:.1f}MWh, cost=EUR {best_cost:,.0f}/MW")
+    return best_result
 
 
 # ============================================================
@@ -645,186 +591,143 @@ if __name__ == "__main__":
     tx_results = run_load_capex_sweep(tx_solar, None, "NorthTexas", n_points=25)
     tx_results.to_csv("data/texas_results.csv", index=False)
 
-    # Also run hybrid optimization for a data center case
-    print("\n" + "=" * 70)
-    print("Running scipy hybrid optimization (Denmark, DC load)...")
-    print("=" * 70)
-    hybrid = optimize_hybrid_scipy(dk_solar, spot_prices, load_mw=1.0,
-                                    sample_hours=2000)
-    print(f"\nHybrid optimal: Solar={hybrid.get('solar_mw', 0):.2f}MW, "
-          f"Battery={hybrid.get('battery_mwh', 0):.2f}MWh")
-    print(f"Annual grid purchase: {hybrid.get('annual_grid_purchase_mwh', 0):.0f} MWh")
-    print(f"Total annual cost: EUR {hybrid.get('total_annual_cost', 0):,.0f}")
-
-    with open("data/hybrid_result.json", "w") as f:
-        json.dump({k: float(v) if isinstance(v, (int, float, np.floating)) else v
-                   for k, v in hybrid.items()}, f, indent=2)
-
     # ---- Concrete 200MW data center scenario ----
-    print("\n" + "=" * 70)
-    print(f"CONCRETE SCENARIO: {DC_LOAD_MW}MW Data Center in Denmark")
-    print("=" * 70)
+    def run_dc_scenario(location_name, solar_cf, spot_prices_eur=None, wind_cf=None):
+        """Run the 200MW DC comparison for a given location."""
+        print(f"\n{'='*80}")
+        print(f"  {DC_LOAD_MW}MW DATA CENTER: {location_name}")
+        print(f"{'='*80}")
 
-    dc_load = DC_LOAD_MW
-    dc_capex = DC_CAPEX_EUR_PER_MW
+        dc_load = DC_LOAD_MW
+        dc_capex = DC_CAPEX_EUR_PER_MW
+        targets = [0.95, 0.99, 0.999]
 
-    # Generate synthetic wind profile for Denmark (30% CF, correlated with season)
-    rng = np.random.RandomState(123)
-    n_steps = len(dk_solar)
-    # Wind is stronger in winter, weaker in summer (inverse of solar)
-    day_of_year = np.arange(n_steps) / 288  # day index
-    seasonal = 0.35 + 0.10 * np.cos(2 * np.pi * day_of_year / 365)  # peaks in winter
-    noise = np.zeros(n_steps)
-    noise[0] = rng.normal(0, 1)
-    for i in range(1, n_steps):
-        noise[i] = 0.995 * noise[i-1] + np.sqrt(1 - 0.995**2) * rng.normal(0, 1)
-    from scipy.stats import norm, beta as beta_dist
-    u = norm.cdf(noise)
-    dk_wind = np.zeros(n_steps)
-    for month in range(1, 13):
-        mask = (day_of_year >= (month - 1) * 30.44) & (day_of_year < month * 30.44)
-        kt = seasonal[mask].mean()
-        a, b = kt * 8, (1 - kt) * 8
-        dk_wind[mask] = beta_dist.ppf(u[mask], a, b)
-    dk_wind = np.clip(dk_wind, 0, 1)
-    wind_cf = np.mean(dk_wind)
-    print(f"Denmark wind CF: {wind_cf:.3f} ({wind_cf*8760:.0f} full load hours)")
+        print(f"Solar CF: {np.mean(solar_cf):.3f} ({np.mean(solar_cf)*8760:.0f} full load hours)")
+        if wind_cf is not None:
+            print(f"Wind  CF: {np.mean(wind_cf):.3f} ({np.mean(wind_cf)*8760:.0f} full load hours)")
 
-    discount_rate = 0.05
-    npv_factor = sum(1 / (1 + discount_rate) ** y for y in range(SYSTEM_LIFETIME_YEARS))
+        scenarios = {}
 
-    scenarios = {}
+        # Scenario A: Grid-only (only if spot prices available)
+        if spot_prices_eur is not None:
+            grid = calculate_grid_cost(dc_load, spot_prices_eur)
+            sc_a = {
+                "name": "Grid-only (100%)",
+                "solar_mw": 0, "wind_mw": 0, "battery_mwh": 0,
+                "total_power_cost_eur": grid["total_cost_eur"],
+                "dc_capex_eur": dc_load * dc_capex,
+                "utilization": 1.0,
+            }
+            sc_a["total_cost_eur"] = sc_a["total_power_cost_eur"] + sc_a["dc_capex_eur"]
+            scenarios["A_grid"] = sc_a
 
-    # Scenario A: Pure grid
-    grid = calculate_grid_cost(dc_load, spot_prices)
-    sc_a = {
-        "name": "Grid-only",
-        "solar_mw": 0, "wind_mw": 0, "battery_mwh": 0,
-        "grid_conn_eur": grid["grid_connection_cost_eur"],
-        "elec_cost_lifetime_eur": grid["lifetime_elec_cost_eur"] + grid["lifetime_tariff_cost_eur"],
-        "power_capex_eur": grid["grid_connection_cost_eur"],
-        "power_opex_lifetime_eur": grid["lifetime_elec_cost_eur"] + grid["lifetime_tariff_cost_eur"],
-        "total_power_cost_eur": grid["total_cost_eur"],
-        "dc_capex_eur": dc_load * dc_capex,
-        "utilization": 1.0,
-        "lcoe_eur_mwh": grid["lcoe_eur_mwh"],
-    }
-    sc_a["total_cost_eur"] = sc_a["total_power_cost_eur"] + sc_a["dc_capex_eur"]
-    scenarios["A_grid"] = sc_a
+        # Off-grid scenarios at different target utilizations
+        for target in targets:
+            label = f"{target*100:.1f}%"
 
-    # Scenario B: Off-grid solar + battery (Handmer's approach)
-    offgrid = optimize_offgrid(dk_solar, dc_capex)
-    solar_mw_b = offgrid["array_size_mw"] * dc_load
-    batt_mwh_b = offgrid["battery_size_mwh"] * dc_load
-    sc_b = {
-        "name": "Off-grid Solar+Battery",
-        "solar_mw": solar_mw_b, "wind_mw": 0, "battery_mwh": batt_mwh_b,
-        "grid_conn_eur": 0,
-        "power_capex_eur": offgrid["array_cost"] * dc_load + offgrid["battery_cost"] * dc_load,
-        "power_opex_lifetime_eur": offgrid["opex_lifetime"] * dc_load,
-        "total_power_cost_eur": offgrid["power_system_cost"] * dc_load,
-        "dc_capex_eur": dc_load * dc_capex,
-        "utilization": offgrid["utilization"],
-        "lcoe_eur_mwh": offgrid["power_system_cost"] / (offgrid["utilization"] * 8760 * SYSTEM_LIFETIME_YEARS),
-    }
-    sc_b["total_cost_eur"] = sc_b["total_power_cost_eur"] + sc_b["dc_capex_eur"]
-    scenarios["B_offgrid_solar"] = sc_b
+            # Solar + battery only
+            print(f"\nSizing solar+battery for {label} utilization...")
+            solar_result = size_for_target_utilization(solar_cf, target_util=target)
+            if solar_result:
+                key = f"B_solar_{label}"
+                sc = {
+                    "name": f"Solar+Batt @ {label}",
+                    "solar_mw": solar_result["solar_mw"] * dc_load,
+                    "wind_mw": 0,
+                    "battery_mwh": solar_result["battery_mwh"] * dc_load,
+                    "total_power_cost_eur": solar_result["total_power_cost"] * dc_load,
+                    "dc_capex_eur": dc_load * dc_capex,
+                    "utilization": solar_result["utilization"],
+                }
+                sc["total_cost_eur"] = sc["total_power_cost_eur"] + sc["dc_capex_eur"]
+                scenarios[key] = sc
+            else:
+                print(f"  IMPOSSIBLE with solar+battery (array up to 75MW, batt up to 500MWh)")
 
-    # Scenario C: Off-grid solar + wind + battery
-    # Simulate combined solar+wind generation
-    combined_cf = dk_solar + dk_wind * 0.5  # 0.5 MW wind per MW solar (will optimize)
-    # Try different wind/solar ratios
-    best_cost = float("inf")
-    best_ratio = 0
-    for wind_ratio in np.arange(0, 2.1, 0.1):
-        combined = dk_solar + dk_wind * wind_ratio
-        # Scale to 1MW equivalent
-        combined_norm = combined / (1 + wind_ratio) if (1 + wind_ratio) > 0 else combined
-        res = optimize_offgrid(combined_norm, dc_capex, verbose=False)
-        # Adjust costs: solar at SOLAR_COST, wind at WIND_COST
-        effective_solar_mw = res["array_size_mw"] * 1 / (1 + wind_ratio)
-        effective_wind_mw = res["array_size_mw"] * wind_ratio / (1 + wind_ratio)
-        solar_capex = effective_solar_mw * SOLAR_COST_PER_MW
-        wind_capex = effective_wind_mw * WIND_COST_PER_MW
-        batt_capex = res["battery_size_mwh"] * BATTERY_COST_PER_MWH
-        solar_om = effective_solar_mw * (SOLAR_OM_EUR_MW_YEAR + SOLAR_LAND_EUR_MW_YEAR) * npv_factor
-        wind_om = effective_wind_mw * (WIND_OM_EUR_MW_YEAR + WIND_LAND_EUR_MW_YEAR) * npv_factor
-        batt_om = res["battery_size_mwh"] * BATTERY_OM_EUR_MWH_YEAR * npv_factor
-        batt_repl = res["battery_size_mwh"] * BATTERY_COST_PER_MWH * BATTERY_REPLACEMENT_COST_FACTOR / (1 + discount_rate) ** BATTERY_REPLACEMENT_YEAR
-        total_power = solar_capex + wind_capex + batt_capex + solar_om + wind_om + batt_om + batt_repl
-        degradation_factor = 1 - SOLAR_DEGRADATION_RATE * (SYSTEM_LIFETIME_YEARS - 1) / 2
-        eff_util = res["utilization"] * degradation_factor  # Approximate
-        total = total_power + dc_capex
-        cost_per_util = total / eff_util if eff_util > 0 else float("inf")
-        if cost_per_util < best_cost:
-            best_cost = cost_per_util
-            best_ratio = wind_ratio
-            best_res = res
-            best_solar_mw = effective_solar_mw
-            best_wind_mw = effective_wind_mw
-            best_total_power = total_power
-            best_util = eff_util
+            # Solar + wind + battery
+            if wind_cf is not None:
+                print(f"Sizing solar+wind+battery for {label} utilization...")
+                sw_result = size_for_target_utilization(solar_cf, target_util=target,
+                                                          wind_cf=wind_cf)
+                if sw_result:
+                    key = f"C_solarwind_{label}"
+                    sc = {
+                        "name": f"Solar+Wind+Batt @ {label}",
+                        "solar_mw": sw_result["solar_mw"] * dc_load,
+                        "wind_mw": sw_result["wind_mw"] * dc_load,
+                        "battery_mwh": sw_result["battery_mwh"] * dc_load,
+                        "total_power_cost_eur": sw_result["total_power_cost"] * dc_load,
+                        "dc_capex_eur": dc_load * dc_capex,
+                        "utilization": sw_result["utilization"],
+                        "wind_ratio": sw_result["wind_ratio"],
+                    }
+                    sc["total_cost_eur"] = sc["total_power_cost_eur"] + sc["dc_capex_eur"]
+                    scenarios[key] = sc
+                else:
+                    print(f"  IMPOSSIBLE even with wind")
 
-    sc_c = {
-        "name": f"Off-grid Solar+Wind+Battery (wind ratio {best_ratio:.1f})",
-        "solar_mw": best_solar_mw * dc_load, "wind_mw": best_wind_mw * dc_load,
-        "battery_mwh": best_res["battery_size_mwh"] * dc_load,
-        "grid_conn_eur": 0,
-        "power_capex_eur": (best_solar_mw * SOLAR_COST_PER_MW + best_wind_mw * WIND_COST_PER_MW + best_res["battery_size_mwh"] * BATTERY_COST_PER_MWH) * dc_load,
-        "total_power_cost_eur": best_total_power * dc_load,
-        "dc_capex_eur": dc_load * dc_capex,
-        "utilization": best_util,
-        "wind_solar_ratio": best_ratio,
-    }
-    sc_c["total_cost_eur"] = sc_c["total_power_cost_eur"] + sc_c["dc_capex_eur"]
-    scenarios["C_offgrid_solar_wind"] = sc_c
+        # Print comparison table
+        print(f"\n{'Scenario':<40} {'Power Cost':>12} {'Util':>6} {'Total':>12}")
+        print(f"{'':<40} {'(EUR M)':>12} {'(%)':>6} {'(EUR M)':>12}")
+        print("-" * 80)
+        for key, sc in scenarios.items():
+            power_m = sc["total_power_cost_eur"] / 1e6
+            total_m = sc["total_cost_eur"] / 1e6
+            util = sc["utilization"] * 100
+            extra = ""
+            if sc.get("solar_mw", 0) > 0:
+                extra += f" Sol {sc['solar_mw']:.0f}MW"
+            if sc.get("wind_mw", 0) > 0:
+                extra += f" Wnd {sc['wind_mw']:.0f}MW"
+            if sc.get("battery_mwh", 0) > 0:
+                extra += f" Bat {sc['battery_mwh']:.0f}MWh"
+            print(f"{sc['name']:<40} {power_m:>9,.0f}   {util:>5.1f} {total_m:>9,.0f}  {extra}")
+        print("-" * 80)
+        print(f"DC CapEx: EUR {dc_load * dc_capex / 1e6:,.0f}M ({dc_load}MW * EUR {dc_capex/1e6:.0f}M/MW)")
 
-    # Scenario D: Hybrid (grid + solar + battery)
-    hybrid_200 = optimize_hybrid_scipy(dk_solar, spot_prices, load_mw=1.0, sample_hours=2000)
-    if hybrid_200.get("status") == "optimal":
-        sc_d = {
-            "name": "Hybrid Grid+Solar+Battery",
-            "solar_mw": hybrid_200["solar_mw"] * dc_load,
-            "wind_mw": 0,
-            "battery_mwh": hybrid_200["battery_mwh"] * dc_load,
-            "grid_conn_eur": GRID_CONNECTION_EUR_PER_MW * dc_load,
-            "total_annual_cost_eur": hybrid_200["total_annual_cost"] * dc_load,
-            "total_power_cost_25yr_eur": hybrid_200["total_annual_cost"] * dc_load * SYSTEM_LIFETIME_YEARS,
-            "dc_capex_eur": dc_load * dc_capex,
-            "utilization": 1.0,
-            "annual_grid_mwh": hybrid_200.get("annual_grid_purchase_mwh", 0) * dc_load,
-        }
-        sc_d["total_cost_eur"] = sc_d["total_power_cost_25yr_eur"] + sc_d["dc_capex_eur"]
-        scenarios["D_hybrid"] = sc_d
+        return scenarios
 
-    # Print comparison table
-    print(f"\n{'='*80}")
-    print(f"{'SCENARIO COMPARISON':^80}")
-    print(f"{'200 MW Data Center in Denmark, 25-year lifetime':^80}")
-    print(f"{'='*80}")
-    print(f"{'Scenario':<35} {'Power Cost':>15} {'Util':>6} {'Total':>15}")
-    print(f"{'':<35} {'(EUR M)':>15} {'(%)':>6} {'(EUR M)':>15}")
-    print("-" * 80)
-    for key, sc in scenarios.items():
-        power_m = sc.get("total_power_cost_eur", sc.get("total_power_cost_25yr_eur", 0)) / 1e6
-        total_m = sc["total_cost_eur"] / 1e6
-        util = sc["utilization"] * 100
-        extra = ""
-        if sc.get("solar_mw", 0) > 0:
-            extra += f" | Solar {sc['solar_mw']:.0f}MW"
-        if sc.get("wind_mw", 0) > 0:
-            extra += f" Wind {sc['wind_mw']:.0f}MW"
-        if sc.get("battery_mwh", 0) > 0:
-            extra += f" Batt {sc['battery_mwh']:.0f}MWh"
-        print(f"{sc['name']:<35} {power_m:>12,.0f}   {util:>5.1f} {total_m:>12,.0f}  {extra}")
+    # Generate synthetic wind profiles
+    from scipy.stats import norm as norm_dist, beta as beta_dist
+    def make_wind_profile(n_steps, mean_cf=0.30, seed=123):
+        rng = np.random.RandomState(seed)
+        day_of_year = np.arange(n_steps) / 288
+        seasonal = mean_cf + 0.10 * np.cos(2 * np.pi * day_of_year / 365)
+        noise = np.zeros(n_steps)
+        noise[0] = rng.normal(0, 1)
+        for i in range(1, n_steps):
+            noise[i] = 0.995 * noise[i-1] + np.sqrt(1 - 0.995**2) * rng.normal(0, 1)
+        u = norm_dist.cdf(noise)
+        wind = np.zeros(n_steps)
+        for month in range(1, 13):
+            mask = (day_of_year >= (month - 1) * 30.44) & (day_of_year < month * 30.44)
+            kt = np.clip(seasonal[mask].mean(), 0.05, 0.95)
+            a, b = kt * 8, (1 - kt) * 8
+            wind[mask] = beta_dist.ppf(u[mask], a, b)
+        return np.clip(wind, 0, 1)
 
-    print("-" * 80)
-    print(f"DC CapEx: EUR {dc_load * dc_capex / 1e6:,.0f}M ({dc_load}MW * EUR {dc_capex/1e6:.0f}M/MW)")
-    print(f"Grid connection: EUR {GRID_CONNECTION_EUR_PER_MW * dc_load / 1e6:,.0f}M ({dc_load}MW * EUR {GRID_CONNECTION_EUR_PER_MW/1e3:.0f}k/MW)")
+    dk_wind = make_wind_profile(len(dk_solar), mean_cf=0.30, seed=123)
+    tx_wind = make_wind_profile(len(tx_solar), mean_cf=0.40, seed=456)
 
+    # Run Denmark scenario
+    dk_scenarios = run_dc_scenario("Denmark", dk_solar, spot_prices, dk_wind)
+
+    # Run Texas scenario (use synthetic spot prices for Texas ~40 EUR/MWh)
+    rng_tx = np.random.RandomState(99)
+    tx_spot = 40 + 20 * rng_tx.randn(8760)
+    tx_spot = np.clip(tx_spot, 5, 200)
+    tx_scenarios = run_dc_scenario("North Texas", tx_solar, tx_spot, tx_wind)
+
+    # Save all scenarios
+    all_scenarios = {"Denmark": dk_scenarios, "NorthTexas": tx_scenarios}
     with open("data/dc_scenario_results.json", "w") as f:
-        json.dump({k: {kk: (float(vv) if isinstance(vv, (int, float, np.floating)) else vv)
-                       for kk, vv in v.items()} for k, v in scenarios.items()}, f, indent=2)
+        def convert(obj):
+            if isinstance(obj, (np.floating, np.integer)):
+                return float(obj)
+            return obj
+        json.dump({loc: {k: {kk: convert(vv) for kk, vv in v.items()}
+                         for k, v in scenarios.items()}
+                   for loc, scenarios in all_scenarios.items()}, f, indent=2)
 
     print("\nAll results saved to data/")
     print("Run generate_report.py to create the PDF report.")
