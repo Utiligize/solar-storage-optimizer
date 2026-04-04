@@ -1,12 +1,38 @@
-# PV + Storage Is NOT All You Need
+# The Grid Strikes Back
 
-**A Scandinavian Challenge to Casey Handmer's Solar+Storage Thesis**
+**PV + Storage Is NOT All You Need: A Reality Check on Off-grid Data Centers**
 
 This repository replicates and extends Casey Handmer's solar+battery optimization
-model, testing his claim that "PV + Storage is All You Need" against Scandinavian
-conditions and real-world grid economics.
+model, adding the real-world costs he omitted (O&M, land, battery replacement,
+degradation) and comparing against grid-connected alternatives across multiple
+regions. We find that for high-reliability loads like data centers, the grid wins
+at high latitudes -- and Handmer's CapEx-only model significantly understates the
+true cost of off-grid power.
 
 Full PDF report: [`output/solar_storage_scandinavia_report.pdf`](output/solar_storage_scandinavia_report.pdf)
+
+### Key Results
+
+**With real-world costs included, grid beats off-grid for data center loads in Denmark:**
+
+<p align="center">
+<img src="output/plots/03_cost_comparison.png" width="800" alt="Cost per unit utilization: off-grid vs grid in Denmark">
+</p>
+
+*Left: Total system cost per unit utilization. The grid (green) crosses below off-grid
+(red) at ~EUR 7M/MW load CapEx -- right in the data center range. Right: Off-grid
+utilization plateaus at 75-90%, far below the 99.9% data centers require.*
+
+**Extending Handmer's analysis across all his regions, plus Denmark:**
+
+<p align="center">
+<img src="output/plots/08_handmer_extended.png" width="800" alt="Handmer's results extended to Scandinavia">
+</p>
+
+*Handmer's original results (US locations + Britain) cluster together. Denmark off-grid
+(red) tracks above them due to lower solar yield. The Danish grid (green) undercuts
+off-grid for loads above ~EUR 7M/MW. Note: Handmer's results use CapEx-only costs;
+our Denmark results include full lifecycle costs.*
 
 ---
 
