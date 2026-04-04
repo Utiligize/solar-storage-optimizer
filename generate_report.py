@@ -170,8 +170,8 @@ def plot_cost_comparison():
                   "s-", color=COLORS["grid"], linewidth=2, markersize=5,
                   label="Grid-connected (DK1)")
 
-    ax.set_xlabel("Load CapEx ($/MW)")
-    ax.set_ylabel("Total System Cost / Utilization ($)")
+    ax.set_xlabel("Load CapEx (EUR/MW)")
+    ax.set_ylabel("Total System Cost / Utilization (EUR)")
     ax.set_title("Cost per Unit Utilization: Denmark")
     ax.legend(fontsize=10)
 
@@ -185,7 +185,7 @@ def plot_cost_comparison():
                 if (diff.iloc[i] > 0) != (diff.iloc[i+1] > 0):
                     cross_x = dk["load_cost_per_mw"].iloc[i]
                     ax.axvline(cross_x, color="gray", linestyle="--", alpha=0.5)
-                    ax.annotate(f"Crossover\n${cross_x:,.0f}/MW",
+                    ax.annotate(f"Crossover\nEUR {cross_x:,.0f}/MW",
                                xy=(cross_x, ax.get_ylim()[0] * 2),
                                fontsize=9, ha="center")
                     break
@@ -201,7 +201,7 @@ def plot_cost_comparison():
                     "s-", color=COLORS["grid"], linewidth=2, markersize=5,
                     label="Grid utilization")
 
-    ax.set_xlabel("Load CapEx ($/MW)")
+    ax.set_xlabel("Load CapEx (EUR/MW)")
     ax.set_ylabel("Annual Utilization (%)")
     ax.set_title("Load Utilization: Denmark")
     ax.set_ylim(0, 105)
@@ -247,15 +247,15 @@ def plot_cost_breakdown():
         ax.loglog(load_costs, dk["grid_total_cost"], "--", color=COLORS["grid"],
                   linewidth=3, label="Grid Total")
 
-    ax.set_xlabel("Load CapEx ($/MW)")
-    ax.set_ylabel("Cost ($)")
+    ax.set_xlabel("Load CapEx (EUR/MW)")
+    ax.set_ylabel("Cost (EUR)")
     ax.set_title("Cost Breakdown: Off-grid Denmark vs Grid-connected")
     ax.legend(loc="upper left", fontsize=10)
 
     # Add text box with assumptions
     ax.text(0.98, 0.02,
-            "Solar: $200k/MW | Battery: $200k/MWh\n"
-            "Grid: 2M DKK/MW + DK1 spot prices\n"
+            "Solar: EUR 200k/MW | Battery: EUR 200k/MWh\n"
+            "Grid: 2M DKK/MW (~EUR 268k) + DK1 spot prices\n"
             "Location: Aalborg, Denmark (57N)\n"
             "Solar yield: ~1,100 kWh/kWp/year",
             transform=ax.transAxes, fontsize=9, va="bottom", ha="right",
@@ -281,7 +281,7 @@ def plot_battery_requirements():
                 "o-", color=COLORS["dk"], linewidth=2, label="Denmark")
     ax.semilogx(tx["load_cost_per_mw"], tx["offgrid_battery_mwh"],
                 "s-", color=COLORS["tx"], linewidth=2, label="North Texas")
-    ax.set_xlabel("Load CapEx ($/MW)")
+    ax.set_xlabel("Load CapEx (EUR/MW)")
     ax.set_ylabel("Optimal Battery Size (MWh)")
     ax.set_title("Battery Requirements for Off-grid")
     ax.legend()
@@ -292,7 +292,7 @@ def plot_battery_requirements():
                 "o-", color=COLORS["dk"], linewidth=2, label="Denmark")
     ax.semilogx(tx["load_cost_per_mw"], tx["offgrid_array_mw"],
                 "s-", color=COLORS["tx"], linewidth=2, label="North Texas")
-    ax.set_xlabel("Load CapEx ($/MW)")
+    ax.set_xlabel("Load CapEx (EUR/MW)")
     ax.set_ylabel("Optimal Solar Array Size (MW)")
     ax.set_title("Solar Overbuild for Off-grid")
     ax.legend()
@@ -323,7 +323,7 @@ def plot_utilization_comparison():
     ax.axhline(100, color=COLORS["grid"], linewidth=2, linestyle="--",
                label="Grid-connected (any location)")
 
-    ax.set_xlabel("Load CapEx ($/MW)", fontsize=13)
+    ax.set_xlabel("Load CapEx (EUR/MW)", fontsize=13)
     ax.set_ylabel("Annual Utilization (%)", fontsize=13)
     ax.set_title("The Utilization Problem: Why Grid Wins for Expensive Loads\nin Scandinavia",
                  fontsize=14)
@@ -372,8 +372,8 @@ def plot_lcoe_comparison():
                 "s-", color=COLORS["grid"], linewidth=2,
                 label="Grid LCOE (DK1 spot + tariffs)")
 
-    ax.set_xlabel("Load CapEx ($/MW)")
-    ax.set_ylabel("LCOE ($/MWh)")
+    ax.set_xlabel("Load CapEx (EUR/MW)")
+    ax.set_ylabel("LCOE (EUR/MWh)")
     ax.set_title("Levelized Cost of Electricity: Off-grid Solar vs Danish Grid")
     ax.legend(fontsize=11)
     ax.set_ylim(0, max(offgrid_lcoe.max() * 1200, 200))
@@ -386,16 +386,39 @@ def plot_lcoe_comparison():
 
 
 def plot_handmer_replication():
-    """Plot 8: Replicate Handmer's key chart using his own data, then overlay Denmark."""
+    """Plot 8: Replicate Handmer's key chart using his own data, then overlay Denmark.
+    Includes all Handmer locations (Arizona, Britain, California, Maine, Washington)."""
     # Load Handmer's Texas results
     tx_handmer = pd.read_csv("data/handmer/SolarModelingData2024/NorthTexas2.csv")
 
     fig, ax = plt.subplots(figsize=(12, 7))
 
-    # Handmer's data
-    ax.loglog(tx_handmer.iloc[:, 2], tx_handmer.iloc[:, 10],
+    # Handmer's data - North Texas
+    ax.loglog(tx_handmer.iloc[:, 2], tx_handmer.iloc[:, 11],
               "o-", color=COLORS["tx"], linewidth=2, markersize=5,
-              label="Handmer - North Texas (original data)", alpha=0.8)
+              label="Handmer - North Texas", alpha=0.8)
+
+    # Other Handmer locations
+    handmer_locations = {
+        "Arizona": {"color": "#e67e22", "marker": "D"},
+        "Britain": {"color": "#1abc9c", "marker": "v"},
+        "California": {"color": "#8e44ad", "marker": "p"},
+        "Maine": {"color": "#34495e", "marker": "h"},
+        "Washington": {"color": "#27ae60", "marker": "*"},
+    }
+    handmer_dir = "data/handmer/SolarModelingData2024"
+    for loc_name, style in handmer_locations.items():
+        fpath = os.path.join(handmer_dir, f"{loc_name}.csv")
+        if os.path.exists(fpath):
+            try:
+                loc_df = pd.read_csv(fpath)
+                # Columns: load cost is col 2, cost per utilization is col 11 (index 10 was used for NorthTexas)
+                ax.loglog(loc_df.iloc[:, 2], loc_df.iloc[:, 11],
+                          marker=style["marker"], linestyle="-", color=style["color"],
+                          linewidth=1.5, markersize=5,
+                          label=f"Handmer - {loc_name}", alpha=0.7)
+            except Exception as e:
+                print(f"  Warning: could not load Handmer data for {loc_name}: {e}")
 
     # Our Texas replication
     try:
@@ -418,15 +441,15 @@ def plot_handmer_replication():
                   "s-", color=COLORS["grid"], linewidth=2.5, markersize=6,
                   label="Denmark grid-connected")
 
-    ax.set_xlabel("Load CapEx ($/MW)", fontsize=13)
-    ax.set_ylabel("Total System Cost / Utilization ($)", fontsize=13)
+    ax.set_xlabel("Load CapEx (EUR/MW)", fontsize=13)
+    ax.set_ylabel("Total System Cost / Utilization (EUR)", fontsize=13)
     ax.set_title("Extending Handmer's Analysis to Scandinavia:\nThe Grid Advantage at High Latitudes",
                  fontsize=14)
-    ax.legend(fontsize=10, loc="upper left")
+    ax.legend(fontsize=9, loc="upper left")
 
     ax.text(0.98, 0.02,
-            "Solar: $200k/MW | Battery: $200k/MWh\n"
-            "Grid: 2M DKK/MW ($290k) + DK1 spot\n"
+            "Solar: EUR 200k/MW | Battery: EUR 200k/MWh\n"
+            "Grid: 2M DKK/MW (~EUR 268k) + DK1 spot\n"
             "Handmer's thesis works in Texas.\n"
             "In Denmark, the grid wins.",
             transform=ax.transAxes, fontsize=10, va="bottom", ha="right",
@@ -600,7 +623,7 @@ def generate_pdf():
     pdf.ln(20)
     pdf.set_font("Helvetica", "I", 10)
     pdf.set_text_color(128, 128, 128)
-    pdf.cell(0, 8, "Using 5-minute resolution solar data, CPLEX optimization,", 0, 1, "C")
+    pdf.cell(0, 8, "Using 5-minute resolution solar data, LP optimization,", 0, 1, "C")
     pdf.cell(0, 8, "and real DK1 electricity spot prices", 0, 1, "C")
     pdf.ln(20)
     pdf.set_font("Helvetica", "", 10)
@@ -629,12 +652,12 @@ def generate_pdf():
         "2. Surprisingly, off-grid solar+storage is STILL cheaper per unit utilization than "
         "grid-connected in Denmark, even with the weaker solar resource. This is because solar "
         "has zero marginal cost, while Danish grid electricity (DK1 spot ~87 EUR/MWh + 25 EUR/MWh "
-        "tariffs) accumulates to ~$16M over 25 years for a 1MW continuous load."
+        "tariffs) accumulates to ~EUR 14M over 25 years for a 1MW continuous load."
     )
     pdf.body_text(
         "3. HOWEVER, off-grid utilization in Denmark plateaus at 85-97% for data center loads - "
-        "far below the 99.9%+ required for critical infrastructure. For a $50M/MW data center, "
-        "each percentage point of downtime represents ~$500k/year in lost revenue. The value of "
+        "far below the 99.9%+ required for critical infrastructure. For a EUR 50M/MW data center, "
+        "each percentage point of downtime represents ~EUR 500k/year in lost revenue. The value of "
         "the grid's guaranteed 100% uptime vastly exceeds its higher power system cost."
     )
     pdf.body_text(
@@ -672,24 +695,24 @@ def generate_pdf():
         "gradient descent, matching Handmer's FindMinimumSystemCost function."
     )
     pdf.body_text(
-        "Cost assumptions (matching Handmer): Solar $200k/MW, Battery $200k/MWh. Load CapEx swept "
-        "from $10k/MW to $100M/MW on a log scale."
+        "Cost assumptions (matching Handmer): Solar EUR 200k/MW, Battery EUR 200k/MWh. Load CapEx "
+        "swept from EUR 10k/MW to EUR 100M/MW on a log scale."
     )
 
     pdf.section_title("Grid-connected Model")
     pdf.body_text(
         "For the grid-connected alternative, we use:\n"
-        "- Grid connection: 2,000,000 DKK/MW (~$290,000/MW) one-time fee\n"
+        "- Grid connection: 2,000,000 DKK/MW (~EUR 268,000/MW) one-time fee\n"
         "- Electricity: DK1 spot prices (historical 2023 data) + grid tariffs (~25 EUR/MWh)\n"
         "- 25-year system lifetime with 5% discount rate for NPV of electricity costs\n"
         "- 100% utilization (grid always available)"
     )
 
-    pdf.section_title("Hybrid Model (CPLEX)")
+    pdf.section_title("Hybrid Model (Linear Programming)")
     pdf.body_text(
-        "We also solve a hybrid optimization using IBM CPLEX: simultaneously size solar PV, "
-        "battery storage, and grid purchases to minimize total annualized cost. This shows the "
-        "optimal mix when grid access is available."
+        "We also solve a hybrid optimization using scipy linprog (HiGHS solver): simultaneously "
+        "size solar PV, battery storage, and grid purchases to minimize total annualized cost. "
+        "This shows the optimal mix when grid access is available."
     )
 
     # ---- RESULTS: SOLAR RESOURCE ----
@@ -790,14 +813,14 @@ def generate_pdf():
         "Casey Handmer's core insight is more robust than we initially expected. Even at 57N, "
         "solar + battery has a lower total cost per unit utilization than grid electricity. "
         "Danish grid power is expensive (~112 EUR/MWh all-in), and the lifetime electricity bill "
-        "for a 1MW continuous load exceeds $15M over 25 years. Solar's zero marginal cost "
+        "for a 1MW continuous load exceeds EUR 14M over 25 years. Solar's zero marginal cost "
         "is a powerful advantage, even in cloudy Scandinavia."
     )
     pdf.body_text(
         "However, Handmer's analysis has a critical blind spot: reliability. His model optimizes "
         "cost per unit utilization, implicitly assuming that partial utilization is acceptable. "
-        "For an electric kettle or water pump, running 80% of the time is fine. For a $50M/MW "
-        "AI data center, 80% utilization means 73 days/year of downtime and ~$10M/year in "
+        "For an electric kettle or water pump, running 80% of the time is fine. For a EUR 50M/MW "
+        "AI data center, 80% utilization means 73 days/year of downtime and ~EUR 10M/year in "
         "stranded capital. No investor accepts that."
     )
     pdf.body_text(
@@ -833,45 +856,26 @@ def generate_pdf():
     pdf.body_text(
         "1. We use synthetic solar data rather than measured irradiance. While calibrated to "
         "known annual yields, the intra-day variability pattern may differ from reality.\n\n"
-        "2. We use the same solar and battery costs as Handmer ($200k/MW and $200k/MWh). These "
-        "may be optimistic for Nordic installations where labor and logistics costs are higher.\n\n"
+        "2. We use the same solar and battery costs as Handmer (EUR 200k/MW and EUR 200k/MWh). "
+        "These may be optimistic for Nordic installations where labor and logistics costs are higher.\n\n"
         "3. Our grid cost model (2M DKK/MW connection + spot prices) is representative of "
         "Danish conditions but will vary by location and voltage level.\n\n"
         "4. We do not model degradation, maintenance, or replacement costs for batteries.\n\n"
-        "5. The off-grid optimizer uses gradient descent rather than CPLEX, similar to Handmer's "
-        "approach. Global optimality is not guaranteed.\n\n"
+        "5. The off-grid optimizer uses gradient descent, similar to Handmer's approach. Global "
+        "optimality is not guaranteed.\n\n"
         "6. We assume a constant load profile. Real data centers have variable loads which could "
         "improve off-grid utilization somewhat.\n\n"
         "7. Grid tariffs are approximate and may change with regulatory reforms."
     )
 
-    # ---- X POSTS ----
-    pdf.add_page()
-    pdf.chapter_title("Draft X Posts")
-    pdf.body_text("The following thread is designed to present key findings on X (Twitter), "
-                  "targeting @CJHandmer's audience:")
-    pdf.ln(5)
-
+    # Generate X posts to separate file
     posts = generate_x_posts(dk)
-    for i, post in enumerate(posts):
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.set_text_color(29, 161, 242)  # Twitter blue
-        pdf.cell(0, 6, f"Post {i+1}/6", 0, 1)
-        pdf.set_font("Courier", "", 9)
-        pdf.set_text_color(0, 0, 0)
-
-        # Draw a box
-        x = pdf.get_x()
-        y = pdf.get_y()
-        pdf.set_fill_color(245, 248, 250)
-        lines = post.split("\n")
-        h = len(lines) * 4.5 + 6
-        pdf.rect(x, y, 180, h, "F")
-        pdf.set_xy(x + 3, y + 3)
-        for line in lines:
-            pdf.cell(174, 4.5, line, 0, 1)
-            pdf.set_x(x + 3)
-        pdf.ln(8)
+    with open("x_posts.txt", "w") as f:
+        for i, post in enumerate(posts):
+            f.write(f"=== Post {i+1}/{len(posts)} ===\n")
+            f.write(post)
+            f.write("\n\n")
+    print("X post drafts saved to: x_posts.txt")
 
     # Save
     output_path = os.path.join(OUTPUT_DIR, "solar_storage_scandinavia_report.pdf")

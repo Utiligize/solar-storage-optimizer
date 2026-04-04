@@ -6,33 +6,32 @@ Two scenarios compared:
 1. Off-grid (Handmer): Solar + Battery only, no grid
 2. Grid-connected: Grid connection + spot prices (Denmark DK1)
 
-Uses CPLEX via docplex for the grid-connected optimization,
+Uses scipy.optimize.linprog for the grid-connected optimization,
 and Casey's simulation approach for the off-grid case.
 """
 
 import numpy as np
 import pandas as pd
-from docplex.mp.model import Model
+from scipy.optimize import linprog
 import time
 import os
 import json
 
 
 # ============================================================
-# CONSTANTS AND COST ASSUMPTIONS
+# CONSTANTS AND COST ASSUMPTIONS (all EUR)
 # ============================================================
 
-SOLAR_COST_PER_MW = 200_000       # $/MW (Handmer's assumption)
-BATTERY_COST_PER_MWH = 200_000    # $/MWh (Handmer's assumption)
+SOLAR_COST_PER_MW = 200_000       # EUR/MW (Handmer's assumption)
+BATTERY_COST_PER_MWH = 200_000    # EUR/MWh (Handmer's assumption)
 BATTERY_EFFICIENCY = 0.90         # Round-trip efficiency
 BATTERY_CYCLES = 5000             # Cycle life
 SYSTEM_LIFETIME_YEARS = 25        # Years
 
 # Grid connection costs (Denmark)
 GRID_CONNECTION_DKK_PER_MW = 2_000_000  # 2M DKK/MW
-DKK_TO_USD = 0.145                       # Approximate exchange rate
 DKK_TO_EUR = 0.134
-GRID_CONNECTION_USD_PER_MW = GRID_CONNECTION_DKK_PER_MW * DKK_TO_USD  # ~$290k/MW
+GRID_CONNECTION_EUR_PER_MW = GRID_CONNECTION_DKK_PER_MW * DKK_TO_EUR  # ~268k EUR/MW
 
 TIMESTEP_HOURS = 5 / 60  # 5 minutes = 1/12 hour
 TIMESTEPS_PER_YEAR = 365 * 24 * 12  # 105120
@@ -173,7 +172,7 @@ def optimize_offgrid(solar_cf, load_cost_per_mw,
             best_bi = bi
             if verbose:
                 print(f"  Step {step}: array={ai:.3f} MW, batt={bi:.3f} MWh, "
-                      f"cost/util=${cost:,.0f}, util={cost_info['utilization']:.3f}")
+                      f"cost/util=EUR {cost:,.0f}, util={cost_info['utilization']:.3f}")
 
         # Compute gradients via finite differences
         eps_a, eps_b = 0.01, 0.01
@@ -201,7 +200,7 @@ def optimize_offgrid(solar_cf, load_cost_per_mw,
 
 def calculate_grid_cost(load_mw, spot_prices_eur_mwh, lifetime_years=SYSTEM_LIFETIME_YEARS):
     """
-    Calculate total cost of grid-connected data center.
+    Calculate total cost of grid-connected data center (all values in EUR).
 
     Args:
         load_mw: constant load in MW
@@ -209,11 +208,10 @@ def calculate_grid_cost(load_mw, spot_prices_eur_mwh, lifetime_years=SYSTEM_LIFE
         lifetime_years: system lifetime
 
     Returns:
-        dict with cost breakdown
+        dict with cost breakdown (EUR)
     """
     # Grid connection cost (one-time)
-    grid_conn_cost_dkk = load_mw * GRID_CONNECTION_DKK_PER_MW
-    grid_conn_cost_usd = grid_conn_cost_dkk * DKK_TO_USD
+    grid_conn_cost_eur = load_mw * GRID_CONNECTION_EUR_PER_MW
 
     # Annual electricity cost
     hours_per_year = len(spot_prices_eur_mwh)
@@ -222,39 +220,33 @@ def calculate_grid_cost(load_mw, spot_prices_eur_mwh, lifetime_years=SYSTEM_LIFE
     # Weighted average price (constant load)
     avg_price_eur = np.mean(spot_prices_eur_mwh)
     annual_elec_cost_eur = annual_energy_mwh * avg_price_eur
-    annual_elec_cost_usd = annual_elec_cost_eur / DKK_TO_EUR * DKK_TO_USD  # Convert via DKK
-
-    # Actually, simpler: EUR to USD directly (~1.08)
-    eur_to_usd = 1.08
-    annual_elec_cost_usd = annual_energy_mwh * avg_price_eur * eur_to_usd
 
     # Total lifetime cost
     # Apply discount rate for NPV of electricity costs
     discount_rate = 0.05
     npv_factor = sum(1 / (1 + discount_rate) ** y for y in range(lifetime_years))
-    lifetime_elec_cost_usd = annual_elec_cost_usd * npv_factor
+    lifetime_elec_cost_eur = annual_elec_cost_eur * npv_factor
 
-    total_cost_usd = grid_conn_cost_usd + lifetime_elec_cost_usd
+    total_cost_eur = grid_conn_cost_eur + lifetime_elec_cost_eur
 
     # Danish grid fees and tariffs (approximate)
     # TSO tariff: ~5 EUR/MWh, DSO: ~15 EUR/MWh, PSO: ~5 EUR/MWh
-    grid_tariffs_eur_mwh = 25  # Total grid fees
-    annual_tariff_cost_usd = annual_energy_mwh * grid_tariffs_eur_mwh * eur_to_usd
-    lifetime_tariff_cost_usd = annual_tariff_cost_usd * npv_factor
+    grid_tariffs_eur_mwh = 25  # Total grid fees EUR/MWh
+    annual_tariff_cost_eur = annual_energy_mwh * grid_tariffs_eur_mwh
+    lifetime_tariff_cost_eur = annual_tariff_cost_eur * npv_factor
 
-    total_with_tariffs = total_cost_usd + lifetime_tariff_cost_usd
+    total_with_tariffs = total_cost_eur + lifetime_tariff_cost_eur
 
     return {
-        "grid_connection_cost_usd": grid_conn_cost_usd,
-        "grid_connection_cost_dkk": grid_conn_cost_dkk,
-        "annual_elec_cost_usd": annual_elec_cost_usd,
-        "annual_tariff_cost_usd": annual_tariff_cost_usd,
-        "lifetime_elec_cost_usd": lifetime_elec_cost_usd,
-        "lifetime_tariff_cost_usd": lifetime_tariff_cost_usd,
-        "total_cost_usd": total_with_tariffs,
+        "grid_connection_cost_eur": grid_conn_cost_eur,
+        "annual_elec_cost_eur": annual_elec_cost_eur,
+        "annual_tariff_cost_eur": annual_tariff_cost_eur,
+        "lifetime_elec_cost_eur": lifetime_elec_cost_eur,
+        "lifetime_tariff_cost_eur": lifetime_tariff_cost_eur,
+        "total_cost_eur": total_with_tariffs,
         "avg_spot_price_eur_mwh": avg_price_eur,
         "utilization": 1.0,  # Grid = 100% utilization always
-        "lcoe_usd_mwh": total_with_tariffs / (annual_energy_mwh * lifetime_years),
+        "lcoe_eur_mwh": total_with_tariffs / (annual_energy_mwh * lifetime_years),
     }
 
 
@@ -262,22 +254,22 @@ def grid_connected_system_cost(load_cost_per_mw, spot_prices_eur_mwh,
                                  lifetime_years=SYSTEM_LIFETIME_YEARS):
     """
     Total system cost for grid-connected operation (load + grid).
-    Comparable to Handmer's total system cost metric.
+    Comparable to Handmer's total system cost metric. All values in EUR.
     """
     grid = calculate_grid_cost(1.0, spot_prices_eur_mwh, lifetime_years)
 
-    total_cost = grid["total_cost_usd"] + load_cost_per_mw
+    total_cost = grid["total_cost_eur"] + load_cost_per_mw
     cost_per_util = total_cost  # utilization = 1.0 for grid
 
     return {
-        "grid_connection_cost": grid["grid_connection_cost_usd"],
-        "lifetime_electricity_cost": grid["lifetime_elec_cost_usd"] + grid["lifetime_tariff_cost_usd"],
+        "grid_connection_cost": grid["grid_connection_cost_eur"],
+        "lifetime_electricity_cost": grid["lifetime_elec_cost_eur"] + grid["lifetime_tariff_cost_eur"],
         "load_cost": load_cost_per_mw,
-        "power_system_cost": grid["total_cost_usd"],
+        "power_system_cost": grid["total_cost_eur"],
         "total_cost": total_cost,
         "cost_per_utilization": cost_per_util,
         "utilization": 1.0,
-        "lcoe_usd_mwh": grid["lcoe_usd_mwh"],
+        "lcoe_eur_mwh": grid["lcoe_eur_mwh"],
         "avg_spot_price": grid["avg_spot_price_eur_mwh"],
     }
 
@@ -286,18 +278,18 @@ def grid_connected_system_cost(load_cost_per_mw, spot_prices_eur_mwh,
 # HYBRID: SOLAR + BATTERY + GRID (CPLEX optimization)
 # ============================================================
 
-def optimize_hybrid_cplex(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
+def optimize_hybrid_scipy(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
                            solar_cost=SOLAR_COST_PER_MW,
                            battery_cost=BATTERY_COST_PER_MWH,
                            max_solar_mw=20.0, max_battery_mwh=50.0,
                            sample_hours=None):
     """
-    CPLEX optimization for hybrid solar+battery+grid system.
+    Scipy linprog optimization for hybrid solar+battery+grid system.
     Minimizes total cost = CapEx(solar+battery) + grid connection + electricity purchases.
+    All costs in EUR.
 
-    Uses hourly resolution to keep CPLEX tractable.
+    Uses hourly resolution to keep the LP tractable.
     """
-    eur_to_usd = 1.08
     discount_rate = 0.05
     npv_factor = sum(1 / (1 + discount_rate) ** y for y in range(SYSTEM_LIFETIME_YEARS))
 
@@ -323,87 +315,132 @@ def optimize_hybrid_cplex(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
         spot = spot_prices_eur_mwh[:n]
         scale = 1.0
 
-    print(f"  CPLEX hybrid optimization with {n} time steps...")
-
-    mdl = Model("hybrid_solar_battery_grid")
-    mdl.parameters.timelimit = 300
-    mdl.parameters.mip.tolerances.mipgap = 0.02
-
-    # Decision variables: sizing
-    solar_cap = mdl.continuous_var(lb=0, ub=max_solar_mw, name="solar_cap")
-    batt_cap = mdl.continuous_var(lb=0, ub=max_battery_mwh, name="batt_cap")
-
-    # Limit to 196 time steps to fit CPLEX Community Edition (1000 var limit)
-    # 196 * 5 vars + 2 sizing vars = 982 < 1000
-    if n > 196:
-        # Sample representative periods: pick every k-th hour
-        idx = np.linspace(0, n - 1, 196, dtype=int)
+    # Limit time steps for tractability
+    if n > 2000:
+        idx = np.linspace(0, n - 1, 2000, dtype=int)
         solar_hourly = solar_hourly[idx]
         spot = spot[idx]
-        scale = scale * n / 196
-        n = 196
+        scale = scale * n / 2000
+        n = 2000
 
-    # Operational variables per timestep
-    grid_buy = mdl.continuous_var_list(n, lb=0, name="grid_buy")
-    batt_charge = mdl.continuous_var_list(n, lb=0, name="batt_charge")
-    batt_discharge = mdl.continuous_var_list(n, lb=0, name="batt_discharge")
-    batt_soc = mdl.continuous_var_list(n, lb=0, name="batt_soc")
-    solar_curtail = mdl.continuous_var_list(n, lb=0, name="solar_curtail")
+    print(f"  Scipy hybrid optimization with {n} time steps...")
 
-    # Constraints
-    for t in range(n):
-        solar_gen = solar_hourly[t] * solar_cap
+    sqrt_eff = np.sqrt(BATTERY_EFFICIENCY)
 
-        # Power balance: solar + grid + discharge = load + charge + curtail
-        mdl.add_constraint(
-            solar_gen + grid_buy[t] + batt_discharge[t]
-            == load_mw + batt_charge[t] + solar_curtail[t]
-        )
+    # Decision variables layout:
+    # [solar_cap, batt_cap, grid_buy(0..n-1), batt_charge(0..n-1),
+    #  batt_discharge(0..n-1), batt_soc(0..n-1), solar_curtail(0..n-1)]
+    # Total: 2 + 5*n variables
 
-        # Battery SOC dynamics
-        if t == 0:
-            mdl.add_constraint(
-                batt_soc[t] == batt_cap * 0.5
-                + batt_charge[t] * np.sqrt(BATTERY_EFFICIENCY)
-                - batt_discharge[t] / np.sqrt(BATTERY_EFFICIENCY)
-            )
-        else:
-            mdl.add_constraint(
-                batt_soc[t] == batt_soc[t - 1]
-                + batt_charge[t] * np.sqrt(BATTERY_EFFICIENCY)
-                - batt_discharge[t] / np.sqrt(BATTERY_EFFICIENCY)
-            )
+    n_vars = 2 + 5 * n
+    # Indices
+    IDX_SOLAR = 0
+    IDX_BATT = 1
+    IDX_GRID = 2
+    IDX_CHARGE = 2 + n
+    IDX_DISCHARGE = 2 + 2 * n
+    IDX_SOC = 2 + 3 * n
+    IDX_CURTAIL = 2 + 4 * n
 
-        # SOC limits
-        mdl.add_constraint(batt_soc[t] <= batt_cap)
-
-        # Charge/discharge rate limits (1C rate)
-        mdl.add_constraint(batt_charge[t] <= batt_cap)
-        mdl.add_constraint(batt_discharge[t] <= batt_cap)
-
-    # Objective: minimize total annualized cost
-    capex_solar = solar_cap * solar_cost / SYSTEM_LIFETIME_YEARS
-    capex_batt = batt_cap * battery_cost / SYSTEM_LIFETIME_YEARS
-    capex_grid = GRID_CONNECTION_USD_PER_MW * load_mw / SYSTEM_LIFETIME_YEARS
+    # Objective: minimize annualized cost
+    # capex_solar/lifetime + capex_batt/lifetime + capex_grid/lifetime + grid_elec_cost
+    c = np.zeros(n_vars)
+    c[IDX_SOLAR] = solar_cost / SYSTEM_LIFETIME_YEARS
+    c[IDX_BATT] = battery_cost / SYSTEM_LIFETIME_YEARS
+    # Grid connection cost is constant (depends on load_mw, not a decision variable)
+    # We add it after optimization
 
     # Grid tariffs
     grid_tariffs_eur = 25  # EUR/MWh
-    annual_grid_cost = mdl.sum(
-        grid_buy[t] * (spot[t] + grid_tariffs_eur) * eur_to_usd * scale / n * 8760
-        for t in range(n)
-    )
+    for t in range(n):
+        c[IDX_GRID + t] = (spot[t] + grid_tariffs_eur) * scale / n * 8760
 
-    total_annual_cost = capex_solar + capex_batt + capex_grid + annual_grid_cost
+    # Bounds
+    bounds = []
+    bounds.append((0, max_solar_mw))    # solar_cap
+    bounds.append((0, max_battery_mwh))  # batt_cap
+    for t in range(n):  # grid_buy
+        bounds.append((0, None))
+    for t in range(n):  # batt_charge
+        bounds.append((0, None))
+    for t in range(n):  # batt_discharge
+        bounds.append((0, None))
+    for t in range(n):  # batt_soc
+        bounds.append((0, None))
+    for t in range(n):  # solar_curtail
+        bounds.append((0, None))
 
-    mdl.minimize(total_annual_cost)
+    # Equality constraints: A_eq @ x = b_eq
+    # 1) Power balance for each t:
+    #    solar_hourly[t] * solar_cap + grid_buy[t] + batt_discharge[t]
+    #    == load_mw + batt_charge[t] + solar_curtail[t]
+    # 2) SOC dynamics for each t:
+    #    t==0: batt_soc[0] == 0.5*batt_cap + sqrt_eff*batt_charge[0] - batt_discharge[0]/sqrt_eff
+    #    t>0:  batt_soc[t] == batt_soc[t-1] + sqrt_eff*batt_charge[t] - batt_discharge[t]/sqrt_eff
 
-    solution = mdl.solve(log_output=False)
+    n_eq = 2 * n
+    A_eq = np.zeros((n_eq, n_vars))
+    b_eq = np.zeros(n_eq)
 
-    if solution:
-        solar_opt = solution.get_value(solar_cap)
-        batt_opt = solution.get_value(batt_cap)
-        grid_purchases = [solution.get_value(grid_buy[t]) for t in range(n)]
-        annual_grid_mwh = sum(grid_purchases) * scale / n * 8760
+    for t in range(n):
+        # Power balance row
+        row_pb = t
+        A_eq[row_pb, IDX_SOLAR] = solar_hourly[t]      # solar_cap coefficient
+        A_eq[row_pb, IDX_GRID + t] = 1.0                # grid_buy[t]
+        A_eq[row_pb, IDX_DISCHARGE + t] = 1.0           # batt_discharge[t]
+        A_eq[row_pb, IDX_CHARGE + t] = -1.0             # -batt_charge[t]
+        A_eq[row_pb, IDX_CURTAIL + t] = -1.0            # -solar_curtail[t]
+        b_eq[row_pb] = load_mw
+
+        # SOC dynamics row
+        row_soc = n + t
+        A_eq[row_soc, IDX_SOC + t] = 1.0                # batt_soc[t]
+        A_eq[row_soc, IDX_CHARGE + t] = -sqrt_eff       # -sqrt_eff * batt_charge[t]
+        A_eq[row_soc, IDX_DISCHARGE + t] = 1.0 / sqrt_eff  # +batt_discharge[t]/sqrt_eff
+        if t == 0:
+            A_eq[row_soc, IDX_BATT] = -0.5              # -0.5 * batt_cap
+            b_eq[row_soc] = 0.0
+        else:
+            A_eq[row_soc, IDX_SOC + t - 1] = -1.0       # -batt_soc[t-1]
+            b_eq[row_soc] = 0.0
+
+    # Inequality constraints: A_ub @ x <= b_ub
+    # For each t:
+    #   batt_soc[t] <= batt_cap  =>  batt_soc[t] - batt_cap <= 0
+    #   batt_charge[t] <= batt_cap  =>  batt_charge[t] - batt_cap <= 0
+    #   batt_discharge[t] <= batt_cap  =>  batt_discharge[t] - batt_cap <= 0
+    n_ineq = 3 * n
+    A_ub = np.zeros((n_ineq, n_vars))
+    b_ub = np.zeros(n_ineq)
+
+    for t in range(n):
+        # SOC <= batt_cap
+        row = t
+        A_ub[row, IDX_SOC + t] = 1.0
+        A_ub[row, IDX_BATT] = -1.0
+
+        # charge <= batt_cap
+        row = n + t
+        A_ub[row, IDX_CHARGE + t] = 1.0
+        A_ub[row, IDX_BATT] = -1.0
+
+        # discharge <= batt_cap
+        row = 2 * n + t
+        A_ub[row, IDX_DISCHARGE + t] = 1.0
+        A_ub[row, IDX_BATT] = -1.0
+
+    result = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
+                     bounds=bounds, method="highs")
+
+    if result.success:
+        x = result.x
+        solar_opt = x[IDX_SOLAR]
+        batt_opt = x[IDX_BATT]
+        grid_purchases = x[IDX_GRID:IDX_GRID + n]
+        annual_grid_mwh = np.sum(grid_purchases) * scale / n * 8760
+
+        capex_grid = GRID_CONNECTION_EUR_PER_MW * load_mw / SYSTEM_LIFETIME_YEARS
+        total_annual = result.fun + capex_grid
 
         return {
             "solar_mw": solar_opt,
@@ -411,9 +448,9 @@ def optimize_hybrid_cplex(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
             "annual_grid_purchase_mwh": annual_grid_mwh,
             "solar_cost": solar_opt * solar_cost,
             "battery_cost": batt_opt * battery_cost,
-            "grid_connection_cost": GRID_CONNECTION_USD_PER_MW * load_mw,
-            "annual_electricity_cost": annual_grid_mwh * (np.mean(spot) + 25) * eur_to_usd,
-            "total_annual_cost": solution.objective_value,
+            "grid_connection_cost": GRID_CONNECTION_EUR_PER_MW * load_mw,
+            "annual_electricity_cost": annual_grid_mwh * (np.mean(spot) + 25),
+            "total_annual_cost": total_annual,
             "status": "optimal",
         }
     else:
@@ -430,13 +467,13 @@ def run_load_capex_sweep(solar_cf, spot_prices_eur_mwh=None, location_name="Unkn
     Run optimization across load CapEx levels from $10k/MW to $100M/MW.
     Compare off-grid vs grid-connected.
     """
-    load_costs = np.logspace(4, 8, n_points)  # $10k to $100M per MW
+    load_costs = np.logspace(4, 8, n_points)  # EUR 10k to 100M per MW
 
     results = []
 
     for i, lc in enumerate(load_costs):
         if verbose:
-            print(f"\n[{i+1}/{n_points}] Load CapEx: ${lc:,.0f}/MW")
+            print(f"\n[{i+1}/{n_points}] Load CapEx: EUR {lc:,.0f}/MW")
 
         # Off-grid optimization
         t0 = time.time()
@@ -468,7 +505,7 @@ def run_load_capex_sweep(solar_cf, spot_prices_eur_mwh=None, location_name="Unkn
                 "grid_total_cost": grid["total_cost"],
                 "grid_cost_per_util": grid["cost_per_utilization"],
                 "grid_utilization": grid["utilization"],
-                "grid_lcoe": grid["lcoe_usd_mwh"],
+                "grid_lcoe": grid["lcoe_eur_mwh"],
             })
 
         results.append(row)
@@ -477,9 +514,9 @@ def run_load_capex_sweep(solar_cf, spot_prices_eur_mwh=None, location_name="Unkn
             print(f"  Off-grid: array={offgrid['array_size_mw']:.2f}MW, "
                   f"batt={offgrid['battery_size_mwh']:.2f}MWh, "
                   f"util={offgrid['utilization']:.3f}, "
-                  f"cost/util=${offgrid['cost_per_utilization']:,.0f}")
+                  f"cost/util=EUR {offgrid['cost_per_utilization']:,.0f}")
             if spot_prices_eur_mwh is not None:
-                print(f"  Grid:     cost/util=${grid['cost_per_utilization']:,.0f}, "
+                print(f"  Grid:     cost/util=EUR {grid['cost_per_utilization']:,.0f}, "
                       f"util=1.000")
 
     return pd.DataFrame(results)
@@ -542,14 +579,14 @@ if __name__ == "__main__":
 
     # Also run hybrid optimization for a data center case
     print("\n" + "=" * 70)
-    print("Running CPLEX hybrid optimization (Denmark, DC load)...")
+    print("Running scipy hybrid optimization (Denmark, DC load)...")
     print("=" * 70)
-    hybrid = optimize_hybrid_cplex(dk_solar, spot_prices, load_mw=1.0,
+    hybrid = optimize_hybrid_scipy(dk_solar, spot_prices, load_mw=1.0,
                                     sample_hours=2000)
     print(f"\nHybrid optimal: Solar={hybrid.get('solar_mw', 0):.2f}MW, "
           f"Battery={hybrid.get('battery_mwh', 0):.2f}MWh")
     print(f"Annual grid purchase: {hybrid.get('annual_grid_purchase_mwh', 0):.0f} MWh")
-    print(f"Total annual cost: ${hybrid.get('total_annual_cost', 0):,.0f}")
+    print(f"Total annual cost: EUR {hybrid.get('total_annual_cost', 0):,.0f}")
 
     with open("data/hybrid_result.json", "w") as f:
         json.dump({k: float(v) if isinstance(v, (int, float, np.floating)) else v
