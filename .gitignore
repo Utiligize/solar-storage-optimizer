@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+cplex.log
+data/handmer/SolarModelingData2024/tx-pv-2006.zip
+data/handmer/SolarModelingData2024/Actual_36.25_-102.95_2006_UPV_84MW_5_Min.csv
+data/handmer/SolarModelingData2024/Solar modeling2.nb
+data/handmer/SolarModelingData2024/TexasDataCenterSolarModeling.pdf
