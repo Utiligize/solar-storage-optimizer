@@ -1,0 +1,57 @@
+{
+  "A_grid": {
+    "name": "Grid-only",
+    "solar_mw": 0.0,
+    "wind_mw": 0.0,
+    "battery_mwh": 0.0,
+    "grid_conn_eur": 53600000.0,
+    "elec_cost_lifetime_eur": 2779846221.221734,
+    "power_capex_eur": 53600000.0,
+    "power_opex_lifetime_eur": 2779846221.221734,
+    "total_power_cost_eur": 2833446221.221734,
+    "dc_capex_eur": 1000000000.0,
+    "utilization": 1.0,
+    "lcoe_eur_mwh": 64.69055299593,
+    "total_cost_eur": 3833446221.221734
+  },
+  "B_offgrid_solar": {
+    "name": "Off-grid Solar+Battery",
+    "solar_mw": 1603.1308204149268,
+    "wind_mw": 0.0,
+    "battery_mwh": 2171.0658392876567,
+    "grid_conn_eur": 0.0,
+    "power_capex_eur": 754839331.9405167,
+    "power_opex_lifetime_eur": 575816906.6517737,
+    "total_power_cost_eur": 1440309816.519042,
+    "dc_capex_eur": 1000000000.0,
+    "utilization": 0.7009596826519562,
+    "lcoe_eur_mwh": 46.91252090400547,
+    "total_cost_eur": 2440309816.519042
+  },
+  "C_offgrid_solar_wind": {
+    "name": "Off-grid Solar+Wind+Battery (wind ratio 1.3)",
+    "solar_mw": 377.0778060399845,
+    "wind_mw": 490.2011478519799,
+    "battery_mwh": 0.0,
+    "grid_conn_eur": 0.0,
+    "power_capex_eur": 663656938.6303728,
+    "total_power_cost_eur": 1000703397.1934853,
+    "dc_capex_eur": 1000000000.0,
+    "utilization": 0.7326308548872842,
+    "wind_solar_ratio": 1.3,
+    "total_cost_eur": 2000703397.1934853
+  },
+  "D_hybrid": {
+    "name": "Hybrid Grid+Solar+Battery",
+    "solar_mw": 4000.0,
+    "wind_mw": 0.0,
+    "battery_mwh": 1796.3711173689862,
+    "grid_conn_eur": 53600000.0,
+    "total_annual_cost_eur": 65348950.62537506,
+    "total_power_cost_25yr_eur": 1633723765.6343765,
+    "dc_capex_eur": 1000000000.0,
+    "utilization": 1.0,
+    "annual_grid_mwh": 293411.8698105028,
+    "total_cost_eur": 2633723765.6343765
+  }
+}
