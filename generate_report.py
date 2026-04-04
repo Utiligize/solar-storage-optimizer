@@ -547,7 +547,7 @@ def generate_x_posts(dk_results):
     # Post 4: Grid cost
     posts.append(
         "But here's the thing: Danish grid power is EXPENSIVE.\n"
-        "DK1 spot ~87 EUR/MWh + 13 EUR/MWh tariffs = ~100 EUR/MWh.\n"
+        "DK1 spot ~87 EUR/MWh + 20 EUR/MWh tariffs = ~107 EUR/MWh.\n"
         "Over 25 years, a 1MW load costs ~$16M in electricity.\n\n"
         "Off-grid solar+battery CapEx for the same load: ~$5M.\n"
         "Solar wins on COST. Grid wins on RELIABILITY. [4/6]"
@@ -653,8 +653,10 @@ def generate_pdf():
     pdf.body_text(
         "2. Surprisingly, off-grid solar+storage is STILL cheaper per unit utilization than "
         "grid-connected in Denmark, even with the weaker solar resource. This is because solar "
-        "has zero marginal cost, while Danish grid electricity (DK1 spot ~87 EUR/MWh + ~13 EUR/MWh "
-        "in grid tariffs and taxes) accumulates to ~EUR 13M over 25 years for a 1MW continuous load."
+        "has lower marginal cost. However, this comparison is misleading: Handmer's model ignores "
+        "O&M costs (~EUR 10k/MW/yr for solar), land lease (~EUR 7.5k/MW/yr in Denmark), battery "
+        "replacement at year ~14, and 0.5%/yr solar degradation. When these real-world costs are "
+        "included, the off-grid advantage shrinks dramatically."
     )
     pdf.body_text(
         "3. HOWEVER, off-grid utilization in Denmark plateaus at 85-97% for data center loads - "
@@ -705,12 +707,27 @@ def generate_pdf():
     pdf.body_text(
         "For the grid-connected alternative, we use:\n"
         "- Grid connection: 2,000,000 DKK/MW (~EUR 268,000/MW) one-time fee\n"
-        "- Electricity: DK1 spot prices (historical 2023 data) + grid tariffs (~13 EUR/MWh:\n"
-        "  Energinet transmission/system ~6, DSO capacity ~2, electricity tax ~5)\n"
-        "- PSO abolished in 2022; DSOs now charge capacity tariffs for large loads\n"
-        "- Assumes 60kV DSO connection (up to ~80MW); TSO connection would save ~2 EUR/MWh\n"
+        "- Electricity: DK1 spot prices (historical 2023 data)\n"
+        "- Grid tariffs (2026 Energinet rates): ~20 EUR/MWh for 60kV DSO connection:\n"
+        "  Energinet system tariff ~9.7, network tariff ~5.8, DSO capacity ~4,\n"
+        "  electricity tax ~0.5 EUR/MWh (business rate after refund)\n"
+        "- PSO abolished 2022; DSOs now charge capacity tariffs for large loads\n"
+        "- Assumes 60kV DSO connection (up to ~80MW); TSO-connected (>80MW) saves ~4 EUR/MWh\n"
         "- 25-year system lifetime with 5% discount rate for NPV of electricity costs\n"
         "- 100% utilization (grid always available)"
+    )
+
+    pdf.section_title("Off-grid Cost Model (Extended)")
+    pdf.body_text(
+        "We extend Handmer's CapEx-only model with real-world recurring costs:\n"
+        "- Solar O&M: EUR 10,000/MW/year\n"
+        "- Battery O&M: EUR 5,000/MWh/year\n"
+        "- Land lease: EUR 7,500/MW/year (~1 ha/MW, Danish farmland rates)\n"
+        "- Battery replacement at year 14 (at 50% of original cost, reflecting cost decline)\n"
+        "- Solar degradation: 0.5%/year (average lifetime output ~94% of year 1)\n"
+        "- All recurring costs NPV'd at 5% discount rate over 25 years\n\n"
+        "These additions significantly increase the off-grid cost relative to Handmer's CapEx-only "
+        "model, making the grid comparison more realistic."
     )
 
     pdf.section_title("Hybrid Model (Linear Programming)")

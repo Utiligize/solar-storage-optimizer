@@ -22,16 +22,37 @@ import json
 # CONSTANTS AND COST ASSUMPTIONS (all EUR)
 # ============================================================
 
-SOLAR_COST_PER_MW = 200_000       # EUR/MW (Handmer's assumption)
-BATTERY_COST_PER_MWH = 200_000    # EUR/MWh (Handmer's assumption)
+SOLAR_COST_PER_MW = 200_000       # EUR/MW CapEx (Handmer's assumption)
+BATTERY_COST_PER_MWH = 200_000    # EUR/MWh CapEx (Handmer's assumption)
 BATTERY_EFFICIENCY = 0.90         # Round-trip efficiency
-BATTERY_CYCLES = 5000             # Cycle life
+BATTERY_CYCLES = 5000             # Cycle life (~14 years at 1 cycle/day)
 SYSTEM_LIFETIME_YEARS = 25        # Years
+
+# Off-grid recurring costs (missing from Handmer's model)
+SOLAR_OM_EUR_MW_YEAR = 10_000     # O&M: ~10 EUR/kW/yr
+BATTERY_OM_EUR_MWH_YEAR = 5_000   # Battery O&M: ~5 EUR/kWh/yr
+BATTERY_REPLACEMENT_YEAR = 14     # Replace battery once during 25-yr lifetime
+BATTERY_REPLACEMENT_COST_FACTOR = 0.5  # Future batteries cost 50% of today
+SOLAR_LAND_EUR_MW_YEAR = 7_500    # Land lease: ~1 ha/MW * ~7,500 EUR/ha/yr (DK farmland)
+SOLAR_DEGRADATION_RATE = 0.005    # 0.5%/year output degradation
 
 # Grid connection costs (Denmark)
 GRID_CONNECTION_DKK_PER_MW = 2_000_000  # 2M DKK/MW
 DKK_TO_EUR = 0.134
 GRID_CONNECTION_EUR_PER_MW = GRID_CONNECTION_DKK_PER_MW * DKK_TO_EUR  # ~268k EUR/MW
+
+# Grid tariffs by region (EUR/MWh, on top of wholesale spot price)
+# Sources: Energinet 2026, ERCOT 4CP, NESO TNUoS/BSUoS, EIA state data
+GRID_TARIFFS = {
+    "Denmark_TSO":  16,    # Energinet system+network 15.4 + elec tax 0.5 (2026)
+    "Denmark_DSO":  20,    # + DSO capacity ~4 EUR/MWh at baseload (60kV)
+    "Texas":         9,    # ERCOT 4CP transmission ~8 + admin ~0.5
+    "Britain":     115,    # TNUoS ~25 + BSUoS ~15 + RO/CfD/FiT ~55 + CM ~12 + CCL ~8
+    "Arizona":      20,    # APS bundled delivery component
+    "California":   75,    # PG&E/SCE non-generation surcharges
+    "Maine":        40,    # ISO-NE transmission + delivery
+    "Washington":   15,    # BPA territory, low
+}
 
 TIMESTEP_HOURS = 5 / 60  # 5 minutes = 1/12 hour
 TIMESTEPS_PER_YEAR = 365 * 24 * 12  # 105120
@@ -108,32 +129,61 @@ def simulate_offgrid(solar_cf, array_size_mw, battery_size_mwh, load_mw=1.0):
 def offgrid_system_cost(solar_cf, array_size_mw, battery_size_mwh, load_cost_per_mw,
                          solar_cost=SOLAR_COST_PER_MW, battery_cost=BATTERY_COST_PER_MWH):
     """
-    Calculate total system cost for off-grid solar+battery.
-    Replicates Handmer's AllInSystemCost function.
+    Calculate total system cost for off-grid solar+battery over 25-year lifetime.
+    Extends Handmer's AllInSystemCost with real-world costs:
+    - O&M for solar and battery
+    - Land lease for solar array
+    - Battery replacement at ~year 14
+    - Solar degradation (reduces effective utilization over time)
+    All costs NPV'd at 5% discount rate.
     """
     result = simulate_offgrid(solar_cf, array_size_mw, battery_size_mwh)
 
-    array_cost = array_size_mw * solar_cost
-    batt_cost = battery_size_mwh * battery_cost
+    discount_rate = 0.05
+    npv_factor = sum(1 / (1 + discount_rate) ** y for y in range(SYSTEM_LIFETIME_YEARS))
+
+    # CapEx (year 0)
+    array_capex = array_size_mw * solar_cost
+    batt_capex = battery_size_mwh * battery_cost
     load_cost = load_cost_per_mw  # For 1 MW load
-    power_system_cost = array_cost + batt_cost
+
+    # Annual O&M (NPV over lifetime)
+    solar_om_annual = array_size_mw * SOLAR_OM_EUR_MW_YEAR
+    batt_om_annual = battery_size_mwh * BATTERY_OM_EUR_MWH_YEAR
+    land_annual = array_size_mw * SOLAR_LAND_EUR_MW_YEAR
+    annual_opex = solar_om_annual + batt_om_annual + land_annual
+    lifetime_opex = annual_opex * npv_factor
+
+    # Battery replacement at year 14 (discounted)
+    batt_replacement = (battery_size_mwh * battery_cost * BATTERY_REPLACEMENT_COST_FACTOR
+                        / (1 + discount_rate) ** BATTERY_REPLACEMENT_YEAR)
+
+    # Solar degradation: average output over 25 years is ~94% of year-1
+    # (0.5%/yr linear degradation -> mean factor = 1 - 0.005*12 = 0.94)
+    degradation_factor = 1 - SOLAR_DEGRADATION_RATE * (SYSTEM_LIFETIME_YEARS - 1) / 2
+    effective_utilization = result["utilization"] * degradation_factor
+
+    power_system_cost = array_capex + batt_capex + lifetime_opex + batt_replacement
     total_cost = power_system_cost + load_cost
 
-    if result["utilization"] > 0:
-        cost_per_util = total_cost / result["utilization"]
+    if effective_utilization > 0:
+        cost_per_util = total_cost / effective_utilization
     else:
         cost_per_util = float("inf")
 
     return {
         "array_size_mw": array_size_mw,
         "battery_size_mwh": battery_size_mwh,
-        "array_cost": array_cost,
-        "battery_cost": batt_cost,
+        "array_cost": array_capex,
+        "battery_cost": batt_capex,
+        "opex_lifetime": lifetime_opex,
+        "battery_replacement": batt_replacement,
         "load_cost": load_cost,
         "power_system_cost": power_system_cost,
         "total_cost": total_cost,
         "cost_per_utilization": cost_per_util,
-        "utilization": result["utilization"],
+        "utilization": effective_utilization,
+        "utilization_year1": result["utilization"],
         "battery_utilization": result["battery_utilization"],
     }
 
@@ -229,13 +279,14 @@ def calculate_grid_cost(load_mw, spot_prices_eur_mwh, lifetime_years=SYSTEM_LIFE
 
     total_cost_eur = grid_conn_cost_eur + lifetime_elec_cost_eur
 
-    # Danish grid fees and tariffs for large loads (60kV DSO connection)
-    # Energinet transmission + system tariff: ~6 EUR/MWh
-    # DSO capacity tariff (N1/Norlys, 60kV): ~15-25 kEUR/MW/yr → ~2-3 EUR/MWh at baseload
-    # Electricity tax (reduced rate for data centers): ~5 EUR/MWh (0.4 DKK/kWh)
-    # PSO abolished in 2022
-    # For TSO-connected loads (>80MW): no DSO fee, total ~11 EUR/MWh
-    grid_tariffs_eur_mwh = 13  # Total grid fees EUR/MWh (60kV DSO connection)
+    # Danish grid tariffs for large loads (2026 rates, Energinet)
+    # Energinet system tariff: ~9.7 EUR/MWh (7.2 ore/kWh)
+    # Energinet network tariff: ~5.8 EUR/MWh (4.3 ore/kWh) + capacity fee
+    # DSO capacity tariff (60kV): ~3-5 EUR/MWh at baseload
+    # Electricity tax (business): ~0.5 EUR/MWh (0.4 ore/kWh after refund)
+    # PSO abolished 2022
+    # TSO-connected (>80MW): ~16 EUR/MWh; 60kV DSO: ~20 EUR/MWh
+    grid_tariffs_eur_mwh = GRID_TARIFFS.get("Denmark_DSO", 20)
     annual_tariff_cost_eur = annual_energy_mwh * grid_tariffs_eur_mwh
     lifetime_tariff_cost_eur = annual_tariff_cost_eur * npv_factor
 
@@ -354,8 +405,8 @@ def optimize_hybrid_scipy(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
     # Grid connection cost is constant (depends on load_mw, not a decision variable)
     # We add it after optimization
 
-    # Grid tariffs (Danish 60kV connection)
-    grid_tariffs_eur = 13  # EUR/MWh (Energinet + DSO + electricity tax)
+    # Grid tariffs (Danish 60kV DSO connection, 2026)
+    grid_tariffs_eur = GRID_TARIFFS.get("Denmark_DSO", 20)
     for t in range(n):
         c[IDX_GRID + t] = (spot[t] + grid_tariffs_eur) * scale / n * 8760
 
@@ -492,10 +543,13 @@ def run_load_capex_sweep(solar_cf, spot_prices_eur_mwh=None, location_name="Unkn
             "offgrid_battery_mwh": offgrid["battery_size_mwh"],
             "offgrid_array_cost": offgrid["array_cost"],
             "offgrid_battery_cost": offgrid["battery_cost"],
+            "offgrid_opex_lifetime": offgrid["opex_lifetime"],
+            "offgrid_battery_replacement": offgrid["battery_replacement"],
             "offgrid_power_system_cost": offgrid["power_system_cost"],
             "offgrid_total_cost": offgrid["total_cost"],
             "offgrid_cost_per_util": offgrid["cost_per_utilization"],
             "offgrid_utilization": offgrid["utilization"],
+            "offgrid_utilization_year1": offgrid["utilization_year1"],
             "offgrid_time_s": t_offgrid,
         }
 
