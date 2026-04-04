@@ -1,11 +1,11 @@
 {
   "solar_mw": 20.0,
-  "battery_mwh": 8.981855586844933,
-  "annual_grid_purchase_mwh": 1464.308018291636,
+  "battery_mwh": 8.86880108418028,
+  "annual_grid_purchase_mwh": 1476.3184720514914,
   "solar_cost": 4000000.0,
-  "battery_cost": 1796371.1173689866,
+  "battery_cost": 1773760.216836056,
   "grid_connection_cost": 268000.0,
-  "annual_electricity_cost": 164056.59698088228,
-  "total_annual_cost": 334073.78225771285,
+  "annual_electricity_cost": 165402.21152879475,
+  "total_annual_cost": 316472.47846813704,
   "status": "optimal"
 }

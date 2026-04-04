@@ -547,7 +547,7 @@ def generate_x_posts(dk_results):
     # Post 4: Grid cost
     posts.append(
         "But here's the thing: Danish grid power is EXPENSIVE.\n"
-        "DK1 spot ~87 EUR/MWh + 25 EUR/MWh tariffs = ~$121/MWh.\n"
+        "DK1 spot ~87 EUR/MWh + 13 EUR/MWh tariffs = ~100 EUR/MWh.\n"
         "Over 25 years, a 1MW load costs ~$16M in electricity.\n\n"
         "Off-grid solar+battery CapEx for the same load: ~$5M.\n"
         "Solar wins on COST. Grid wins on RELIABILITY. [4/6]"
@@ -634,25 +634,27 @@ def generate_pdf():
     pdf.chapter_title("Executive Summary")
     pdf.body_text(
         "Casey Handmer argues that solar PV combined with battery storage can serve virtually "
-        "any load profile at any location, making grid connections and gas backup unnecessary. "
-        "His optimization model, using 5-minute resolution NREL data from Texas, shows that for "
-        "expensive continuous loads (like AI data centers), massive solar overbuild with 15+ hours "
-        "of battery storage is cheaper than alternatives."
+        "any load profile at any location, making grid connections and gas backup unnecessary - "
+        "dismissing backup gas turbines as 'DEI for turbines' (i.e., included for political rather "
+        "than economic reasons). His optimization model, using 5-minute resolution NREL data from "
+        "Texas, shows that for expensive continuous loads (like AI data centers), massive solar "
+        "overbuild with 15+ hours of battery storage is cheaper than alternatives."
     )
     pdf.body_text(
         "We replicate his approach and extend it to Scandinavian conditions (Denmark, 57N). "
         "Our key findings:"
     )
     pdf.body_text(
-        "1. Solar capacity factor in Denmark (~1,100 kWh/kWp) is 35% lower than Texas "
-        "(~1,700 kWh/kWp), but the real problem is seasonal: winter output drops to near-zero "
-        "for extended periods, with only 6-7 hours of weak, low-angle sun in December."
+        "1. Denmark's annual solar yield is ~1,100 kWh/kWp (capacity factor 0.13, or ~1,100 full "
+        "load hours), which is 35% lower than Texas at ~1,700 kWh/kWp (CF 0.19). But the real "
+        "problem is seasonal: winter output drops to near-zero for extended periods, with only "
+        "6-7 hours of weak, low-angle sun in December."
     )
     pdf.body_text(
         "2. Surprisingly, off-grid solar+storage is STILL cheaper per unit utilization than "
         "grid-connected in Denmark, even with the weaker solar resource. This is because solar "
-        "has zero marginal cost, while Danish grid electricity (DK1 spot ~87 EUR/MWh + 25 EUR/MWh "
-        "tariffs) accumulates to ~EUR 14M over 25 years for a 1MW continuous load."
+        "has zero marginal cost, while Danish grid electricity (DK1 spot ~87 EUR/MWh + ~13 EUR/MWh "
+        "in grid tariffs and taxes) accumulates to ~EUR 13M over 25 years for a 1MW continuous load."
     )
     pdf.body_text(
         "3. HOWEVER, off-grid utilization in Denmark plateaus at 85-97% for data center loads - "
@@ -703,7 +705,10 @@ def generate_pdf():
     pdf.body_text(
         "For the grid-connected alternative, we use:\n"
         "- Grid connection: 2,000,000 DKK/MW (~EUR 268,000/MW) one-time fee\n"
-        "- Electricity: DK1 spot prices (historical 2023 data) + grid tariffs (~25 EUR/MWh)\n"
+        "- Electricity: DK1 spot prices (historical 2023 data) + grid tariffs (~13 EUR/MWh:\n"
+        "  Energinet transmission/system ~6, DSO capacity ~2, electricity tax ~5)\n"
+        "- PSO abolished in 2022; DSOs now charge capacity tariffs for large loads\n"
+        "- Assumes 60kV DSO connection (up to ~80MW); TSO connection would save ~2 EUR/MWh\n"
         "- 25-year system lifetime with 5% discount rate for NPV of electricity costs\n"
         "- 100% utilization (grid always available)"
     )

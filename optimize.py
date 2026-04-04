@@ -229,9 +229,13 @@ def calculate_grid_cost(load_mw, spot_prices_eur_mwh, lifetime_years=SYSTEM_LIFE
 
     total_cost_eur = grid_conn_cost_eur + lifetime_elec_cost_eur
 
-    # Danish grid fees and tariffs (approximate)
-    # TSO tariff: ~5 EUR/MWh, DSO: ~15 EUR/MWh, PSO: ~5 EUR/MWh
-    grid_tariffs_eur_mwh = 25  # Total grid fees EUR/MWh
+    # Danish grid fees and tariffs for large loads (60kV DSO connection)
+    # Energinet transmission + system tariff: ~6 EUR/MWh
+    # DSO capacity tariff (N1/Norlys, 60kV): ~15-25 kEUR/MW/yr → ~2-3 EUR/MWh at baseload
+    # Electricity tax (reduced rate for data centers): ~5 EUR/MWh (0.4 DKK/kWh)
+    # PSO abolished in 2022
+    # For TSO-connected loads (>80MW): no DSO fee, total ~11 EUR/MWh
+    grid_tariffs_eur_mwh = 13  # Total grid fees EUR/MWh (60kV DSO connection)
     annual_tariff_cost_eur = annual_energy_mwh * grid_tariffs_eur_mwh
     lifetime_tariff_cost_eur = annual_tariff_cost_eur * npv_factor
 
@@ -350,8 +354,8 @@ def optimize_hybrid_scipy(solar_cf, spot_prices_eur_mwh, load_mw=1.0,
     # Grid connection cost is constant (depends on load_mw, not a decision variable)
     # We add it after optimization
 
-    # Grid tariffs
-    grid_tariffs_eur = 25  # EUR/MWh
+    # Grid tariffs (Danish 60kV connection)
+    grid_tariffs_eur = 13  # EUR/MWh (Energinet + DSO + electricity tax)
     for t in range(n):
         c[IDX_GRID + t] = (spot[t] + grid_tariffs_eur) * scale / n * 8760
 
