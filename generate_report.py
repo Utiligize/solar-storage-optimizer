@@ -493,7 +493,7 @@ def plot_handmer_replication():
             bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.9))
 
     plt.tight_layout()
-    path = os.path.join(PLOT_DIR, "08_handmer_extended.png")
+    path = os.path.join(PLOT_DIR, "08_handmer_extended_v2.png")
     plt.savefig(path, bbox_inches="tight")
     plt.close()
     return path
