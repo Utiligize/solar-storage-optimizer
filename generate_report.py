@@ -446,21 +446,30 @@ def plot_handmer_replication():
     dk_999_power_cost = None
     try:
         dc_results = json.load(open("data/dc_scenario_results.json"))
-        # Find the Denmark 99.9% solar+wind+battery result
         dk_scenarios = dc_results.get("Denmark", {})
+        # Prefer solar+wind+battery (key starts with C_solarwind)
         for k, v in dk_scenarios.items():
-            if "99.9" in v.get("name", "") or "99.9" in k:
+            if "C_solarwind_99.9" in k:
                 dk_999_power_cost = v["total_power_cost_eur"] / 200  # Per MW (200MW DC)
                 break
-    except Exception:
-        pass
+        if dk_999_power_cost is None:
+            # Fall back to solar-only
+            for k, v in dk_scenarios.items():
+                if "B_solar_99.9" in k:
+                    dk_999_power_cost = v["total_power_cost_eur"] / 200
+                    break
+    except Exception as e:
+        print(f"  Warning: could not load DC scenario results: {e}")
 
     if dk_999_power_cost:
+        print(f"  Denmark 99.9% power cost: EUR {dk_999_power_cost:,.0f}/MW")
         load_costs = dk["load_cost_per_mw"].values
         cost_999 = (dk_999_power_cost + load_costs) / 0.999
         ax.loglog(load_costs, cost_999,
-                  "-", color=COLORS["dk"], linewidth=3, markersize=0,
-                  label=f"Denmark off-grid @ 99.9% (sol+wind+batt)")
+                  "-", color="#8B0000", linewidth=3,
+                  label="Denmark off-grid @ 99.9% (sol+wind+batt)")
+    else:
+        print("  WARNING: No 99.9% data found for Denmark")
 
     # Data center CapEx line
     ax.axvline(5e6, color="gray", linestyle="--", linewidth=1.5, alpha=0.7)
