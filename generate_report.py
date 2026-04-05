@@ -441,6 +441,14 @@ def plot_handmer_replication():
                   "s-", color=COLORS["grid"], linewidth=2.5, markersize=6,
                   label="Denmark grid-connected")
 
+    # Data center CapEx range (EUR 3-10M/MW typical, EUR 5M/MW representative)
+    ax.axvline(5e6, color="gray", linestyle="--", linewidth=1.5, alpha=0.7)
+    ax.annotate("Typical DC\nEUR 5M/MW",
+                xy=(5e6, ax.get_ylim()[0] if ax.get_ylim()[0] > 0 else 1e6),
+                xytext=(5e6 * 1.5, 3e6),
+                fontsize=10, color="gray", fontweight="bold",
+                arrowprops=dict(arrowstyle="-", color="gray", alpha=0.5))
+
     ax.set_xlabel("Load CapEx (EUR/MW)", fontsize=13)
     ax.set_ylabel("Total System Cost / Utilization (EUR)", fontsize=13)
     ax.set_title("Extending Handmer's Analysis to Scandinavia:\nThe Grid Advantage at High Latitudes",
@@ -450,8 +458,7 @@ def plot_handmer_replication():
     ax.text(0.98, 0.02,
             "Solar: EUR 200k/MW | Battery: EUR 200k/MWh\n"
             "Grid: 2M DKK/MW (~EUR 268k) + DK1 spot\n"
-            "Handmer's thesis works in Texas.\n"
-            "In Denmark, the grid wins.",
+            "Dashed line: typical data center CapEx",
             transform=ax.transAxes, fontsize=10, va="bottom", ha="right",
             bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.9))
 
