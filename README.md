@@ -26,7 +26,7 @@ utilization plateaus at 75-90%, far below the 99.9% data centers require.*
 **Extending Handmer's analysis across all his regions, plus Denmark:**
 
 <p align="center">
-<img src="output/plots/08_handmer_extended.png" width="800" alt="Handmer's results extended to Scandinavia">
+<img src="output/plots/08_handmer_extended_v2.png" width="800" alt="Handmer's results extended to Scandinavia">
 </p>
 
 *Handmer's original results (US locations + Britain) cluster together. Denmark off-grid
