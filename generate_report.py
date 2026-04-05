@@ -466,8 +466,16 @@ def plot_handmer_replication():
         load_costs = dk["load_cost_per_mw"].values
         cost_999 = (dk_999_power_cost + load_costs) / 0.999
         ax.loglog(load_costs, cost_999,
-                  "-", color="#8B0000", linewidth=3,
+                  "--", color="#FF00FF", linewidth=4, zorder=10,
                   label="Denmark off-grid @ 99.9% (sol+wind+batt)")
+        # Annotate at the DC CapEx point
+        dc_idx = np.searchsorted(load_costs, 5e6)
+        if dc_idx < len(cost_999):
+            ax.annotate(f"99.9% off-grid\nEUR {cost_999[dc_idx]/1e6:.0f}M/MW",
+                       xy=(load_costs[dc_idx], cost_999[dc_idx]),
+                       xytext=(load_costs[dc_idx] / 8, cost_999[dc_idx] * 1.8),
+                       fontsize=9, color="#FF00FF", fontweight="bold",
+                       arrowprops=dict(arrowstyle="->", color="#FF00FF", linewidth=1.5))
     else:
         print("  WARNING: No 99.9% data found for Denmark")
 
