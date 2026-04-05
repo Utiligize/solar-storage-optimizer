@@ -429,23 +429,44 @@ def plot_handmer_replication():
     except Exception:
         pass
 
-    # Denmark off-grid
+    # Denmark off-grid (optimizer-chosen utilization, typically 70-90%)
     dk = pd.read_csv("data/denmark_results.csv")
     ax.loglog(dk["load_cost_per_mw"], dk["offgrid_cost_per_util"],
               "o-", color=COLORS["dk"], linewidth=2, markersize=5,
-              label="Denmark off-grid (57N)")
+              label="Denmark off-grid (opt. util.)", alpha=0.5)
 
-    # Denmark grid
+    # Denmark grid (100% utilization)
     if "grid_cost_per_util" in dk.columns:
         ax.loglog(dk["load_cost_per_mw"], dk["grid_cost_per_util"],
                   "s-", color=COLORS["grid"], linewidth=2.5, markersize=6,
-                  label="Denmark grid-connected")
+                  label="Denmark grid (100%)")
 
-    # Data center CapEx range (EUR 3-10M/MW typical, EUR 5M/MW representative)
+    # Denmark off-grid at 99.9% utilization (solar+wind+battery)
+    # Power system cost from target-utilization sizing (per MW of load)
+    dk_999_power_cost = None
+    try:
+        dc_results = json.load(open("data/dc_scenario_results.json"))
+        # Find the Denmark 99.9% solar+wind+battery result
+        dk_scenarios = dc_results.get("Denmark", {})
+        for k, v in dk_scenarios.items():
+            if "99.9" in v.get("name", "") or "99.9" in k:
+                dk_999_power_cost = v["total_power_cost_eur"] / 200  # Per MW (200MW DC)
+                break
+    except Exception:
+        pass
+
+    if dk_999_power_cost:
+        load_costs = dk["load_cost_per_mw"].values
+        cost_999 = (dk_999_power_cost + load_costs) / 0.999
+        ax.loglog(load_costs, cost_999,
+                  "-", color=COLORS["dk"], linewidth=3, markersize=0,
+                  label=f"Denmark off-grid @ 99.9% (sol+wind+batt)")
+
+    # Data center CapEx line
     ax.axvline(5e6, color="gray", linestyle="--", linewidth=1.5, alpha=0.7)
     ax.annotate("Typical DC\nEUR 5M/MW",
-                xy=(5e6, ax.get_ylim()[0] if ax.get_ylim()[0] > 0 else 1e6),
-                xytext=(5e6 * 1.5, 3e6),
+                xy=(5e6, 3e6),
+                xytext=(7e6, 2.5e6),
                 fontsize=10, color="gray", fontweight="bold",
                 arrowprops=dict(arrowstyle="-", color="gray", alpha=0.5))
 
